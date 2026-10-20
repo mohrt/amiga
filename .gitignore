@@ -4,11 +4,11 @@ dist/
 
 # ROM files are never committed: your own Kickstarts go in roms/ (for the tests only),
 # and the free AROS ROMs are downloaded by `npm run fetch:roms`.
-roms/
+/roms/
 tests/fixtures/aros/
 
 # Disk images supplied locally, free games and test files are downloaded by scripts.
-disks/
+/disks/
 *.adf
 *.adz
 public/games/
