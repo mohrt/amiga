@@ -8,6 +8,7 @@ import {
   identifyKickstart,
   joinSplitKickstart,
   kickstartChecksumOk,
+  preferredKickstart,
   type StoredRom,
 } from '../src/roms/system-roms';
 import { MemoryStore } from '../src/storage/store';
@@ -99,6 +100,12 @@ describe('real Kickstarts from roms/', () => {
     const result = identifyKickstart('kick13.rom', real('kick13.rom')!);
     expect(result.title).toBe('Kickstart 1.3 (34.5)');
     expect(result.warning).toBeNull();
+  });
+
+  it.skipIf(!real('kick13.rom') || !real('kick31.rom') || !real('kick12.rom'))('picks Kickstart 1.3 from several, as from a ROM collection', () => {
+    const roms = ['kick31.rom', 'kick12.rom', 'kick13.rom'].map((name) => identifyKickstart(name, real(name)!));
+    expect(preferredKickstart(roms).title).toBe('Kickstart 1.3 (34.5)');
+    expect(preferredKickstart([roms[1], roms[0]]).title).toBe('Kickstart 3.1 (40.63, A500/A600/A2000)');
   });
 
   it.skipIf(!real('kick13-overdump.rom'))('recognises an overdump of it', () => {

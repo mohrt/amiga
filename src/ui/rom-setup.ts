@@ -6,24 +6,39 @@ import {
   identifyKickstart,
   joinSplitKickstart,
   looksLikeKickstart,
+  preferredKickstart,
   type Kickstart,
   type SystemRomStore,
 } from '../roms/system-roms';
 
-/** Files worth looking at in a zip: Kickstart-sized (whole, encrypted or half) or a rom.key. */
+/** Files worth looking at in a zip: Kickstart-sized (whole, encrypted or half), a rom.key, or another zip. */
 function interesting(name: string, size: number): boolean {
   const base = name.split('/').pop()!;
   if (base.startsWith('.') || name.startsWith('__MACOSX/')) return false;
-  if (base.toLowerCase() === 'rom.key') return true;
+  if (base.toLowerCase() === 'rom.key' || base.toLowerCase().endsWith('.zip')) return true;
   return [KICKSTART_256K, KICKSTART_512K, KICKSTART_256K / 2].includes(size) || size === KICKSTART_256K + 11 || size === KICKSTART_512K + 11;
 }
 
-async function expand(file: File): Promise<File[]> {
+/** ROM collections often hold a zip per ROM, so zips are opened this many levels down. */
+const MAX_ZIP_DEPTH = 2;
+
+async function expand(file: File, depth = 0): Promise<File[]> {
   const data = new Uint8Array(await file.arrayBuffer());
   if (!isZip(data)) return [file];
+  if (depth >= MAX_ZIP_DEPTH) return [];
   const entries = readZip(data).filter((entry) => interesting(entry.name, entry.size));
-  if (entries.length === 0) throw new Error(`${file.name} has no Kickstart ROM in it.`);
-  return Promise.all(entries.map(async (entry) => new File([new Uint8Array(await entry.read())], entry.name.split('/').pop()!)));
+  const files: File[] = [];
+  for (const entry of entries) {
+    files.push(...(await expand(new File([new Uint8Array(await entry.read())], entry.name.split('/').pop()!), depth + 1)));
+  }
+  if (depth === 0 && files.length === 0) throw new Error(`${file.name} has no Kickstart ROM in it.`);
+  return files;
+}
+
+/** The first few problems, so a whole collection of unsuitable ROMs doesn't fill the panel. */
+function summarise(errors: string[]): string {
+  const shown = errors.slice(0, 3).join(' ');
+  return errors.length > 3 ? `${shown} (and ${errors.length - 3} more files that aren't usable)` : shown;
 }
 
 export interface RomSetupOptions {
@@ -96,6 +111,8 @@ export function askForKickstart(
     }
     // The key first, so an encrypted ROM in the same batch can use it.
     for (const file of files.filter((entry) => entry.name.toLowerCase().endsWith('.key'))) key = new Uint8Array(await file.arrayBuffer());
+    /** Every usable Kickstart in the batch; the best goes in. */
+    const found: Kickstart[] = [];
     for (const file of files) {
       if (file.name.toLowerCase().endsWith('.key')) continue;
       const data = new Uint8Array(await file.arrayBuffer());
@@ -109,25 +126,30 @@ export function askForKickstart(
           }
           const joined = joinSplitKickstart(new Uint8Array(await half.arrayBuffer()), data);
           if (!joined) throw new Error(`${half.name} and ${file.name} don't make a Kickstart together.`);
-          await use(identifyKickstart(`${half.name} + ${file.name}`, joined));
+          found.push(identifyKickstart(`${half.name} + ${file.name}`, joined));
           half = null;
           continue;
         }
-        await use(identifyKickstart(file.name, data, key ?? undefined));
+        found.push(identifyKickstart(file.name, data, key ?? undefined));
       } catch (error) {
-        if (error instanceof NeedsRomKey) encrypted = file;
+        if (error instanceof NeedsRomKey) encrypted ??= file;
         errors.push(error instanceof Error ? error.message : String(error));
       }
     }
     if (encrypted && key) {
       try {
-        await use(identifyKickstart(encrypted.name, new Uint8Array(await encrypted.arrayBuffer()), key));
-        errors.length = 0;
+        found.push(identifyKickstart(encrypted.name, new Uint8Array(await encrypted.arrayBuffer()), key));
       } catch (error) {
         errors.push(error instanceof Error ? error.message : String(error));
       }
     }
-    message.textContent = errors.join(' ');
+    if (found.length > 0) {
+      // The other files of a batch (a collection's ROMs for other Amigas) don't matter once one fits.
+      await use(preferredKickstart(found));
+      half = null;
+      errors.length = 0;
+    }
+    message.textContent = summarise(errors);
     render();
   };
 

@@ -39,6 +39,19 @@ const KNOWN_ROMS: Record<number, KnownRom> = {
   0x1e62d4a5: { name: 'Kickstart 3.1 (40.60, CD32)', unsuitable: 'it is made for the CD32 (68020 and AGA)' },
 };
 
+/** The best Kickstarts for an A500, best first: 1.3 runs the most games. */
+const PREFERRED_ROMS = [0xc4f0f55f, 0xfc24ae0d, 0xc3bdb240, 0x43b0df7b, 0x64466c2a, 0x83028fb5, 0xa6ce1636, 0x9ed783d0];
+
+/** The Kickstart to use from several (a whole ROM collection dropped at once). */
+export function preferredKickstart(roms: Kickstart[]): Kickstart {
+  const rank = (rom: Kickstart) => {
+    const known = PREFERRED_ROMS.indexOf(crc32(rom.data));
+    if (known >= 0) return known;
+    return PREFERRED_ROMS.length + (rom.warning ? 1 : 0);
+  };
+  return roms.reduce((best, rom) => (rank(rom) < rank(best) ? rom : best));
+}
+
 /** Kickstart versions (from the ROM header) by the number Commodore marketed them as. */
 const MARKETED_VERSIONS: [number, string][] = [
   [40, '3.1'],
