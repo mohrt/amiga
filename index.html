@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#111111" />
+    <title>Amiga 500</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main>
+      <div class="screen-frame">
+        <canvas id="screen" width="720" height="568" tabindex="0" aria-label="Amiga 500 screen"></canvas>
+        <p class="paused-label">Paused</p>
+        <p class="mouse-label" hidden>Click the screen to use the mouse; Esc lets it go</p>
+        <section id="rom-setup" class="rom-setup" aria-labelledby="rom-setup-title" hidden>
+          <h1 id="rom-setup-title">First, load a Kickstart ROM</h1>
+          <p class="rom-setup-lead">
+            The Amiga can't switch on without Kickstart, the operating system in its ROM chip. It is still under
+            copyright, so it isn't included here: choose or drop your own Kickstart image. It stays in this browser and
+            is never sent anywhere. The browser remembers it, so you only need to do this once.
+          </p>
+          <ul class="rom-list">
+            <li data-rom="kickstart">
+              <p class="rom-heading"><strong>Kickstart ROM</strong> <span class="rom-need">Required</span></p>
+              <p class="rom-detail">
+                Kickstart 1.3 is the A500's own and runs the most games; 1.2, 2.04 and 3.1 for the A500 work too. 256 KB
+                (1.2 and 1.3) or 512 KB (2.04 and later). Amiga Forever's encrypted ROMs work with their
+                <code>rom.key</code>, and so do byte-swapped dumps and dumps of the two ROM chips.
+              </p>
+              <p class="rom-names">
+                Often named <code>kick13.rom</code>, <code>kick34005.A500</code>, <code>amiga-os-130.rom</code> or
+                <code>Kickstart v1.3 r34.005 (1987-12)(Commodore)(A500-A1000-A2000-CDTV)[!].rom</code>
+              </p>
+              <p class="rom-status"></p>
+            </li>
+            <li data-rom="key" class="optional" hidden>
+              <p class="rom-heading"><strong>rom.key</strong> <span class="rom-need">Needed for that ROM</span></p>
+              <p class="rom-detail">The ROM is encrypted. Add the <code>rom.key</code> file that came with it.</p>
+            </li>
+          </ul>
+          <p class="rom-tip">Pick the files, or a .zip containing them.</p>
+          <div class="rom-actions">
+            <button type="button" class="primary" data-action="choose-roms">Choose ROM files...</button>
+            <button type="button" data-action="start" disabled>Start the Amiga</button>
+            <button type="button" data-action="back" hidden>Back to the Amiga</button>
+            <button type="button" data-action="forget-roms" hidden>Forget this ROM</button>
+          </div>
+          <p class="rom-message" role="alert"></p>
+          <p class="rom-storage-note"></p>
+          <p class="rom-drop-hint">Release to load the ROM</p>
+          <input type="file" name="rom-files" multiple hidden />
+        </section>
+      </div>
+
+      <section id="toolbar" class="toolbar" aria-label="Amiga">
+        <span class="toolbar-group">
+          <button type="button" data-action="pause" title="The Pause key">Pause</button>
+          <button type="button" data-action="reset" title="Ctrl-Amiga-Amiga: restart, keeping the disks in">Reset</button>
+          <button type="button" data-action="power" title="Switch the Amiga off and on again">Power cycle</button>
+          <button type="button" data-action="fullscreen" title="Esc leaves full screen">Full screen</button>
+          <button type="button" data-action="change-roms" title="Change or forget the Kickstart ROM">System ROMs...</button>
+        </span>
+        <span class="toolbar-group">
+          <select name="tv" aria-label="TV standard" title="Changing this switches the Amiga off and on">
+            <option value="pal" selected>PAL (50 Hz)</option>
+            <option value="ntsc">NTSC (60 Hz)</option>
+          </select>
+          <select name="memory" aria-label="Memory" title="Changing this switches the Amiga off and on">
+            <option value="512+512" selected>512K chip + 512K slow</option>
+            <option value="512">512K chip only</option>
+            <option value="1024">1MB chip</option>
+          </select>
+          <label class="toolbar-check" title="An external drive as DF1; changing this switches the Amiga off and on">
+            <input type="checkbox" name="external-drive" /> DF1
+          </label>
+        </span>
+        <span class="toolbar-group">
+          <button type="button" data-action="save-state" title="Save the whole Amiga, disks included, to come back to later">
+            Save state
+          </button>
+          <select name="state-slot" aria-label="Save states"></select>
+          <button type="button" data-action="load-state">Load</button>
+          <button type="button" data-action="delete-state">Delete</button>
+          <button type="button" data-action="export-state" title="Download the current state as a file">Export</button>
+          <button type="button" data-action="import-state">Import...</button>
+        </span>
+        <span class="toolbar-message" role="status"></span>
+        <input type="file" name="state-file" accept=".amigastate" hidden />
+      </section>
+
+      <section id="disk-panel" class="disk-panel" aria-label="Floppy drives">
+        <div class="drive" data-drive="0" data-state="empty">
+          <span class="drive-led" title="Drive activity"></span>
+          <strong class="drive-label">DF0:</strong>
+          <span class="disk-name">No disk</span>
+          <span class="disk-detail"></span>
+          <span class="disk-saved" hidden>has saved games</span>
+          <span class="drive-actions">
+            <button type="button" data-action="choose">Insert disk...</button>
+            <button type="button" data-action="eject">Eject</button>
+            <button type="button" data-action="revert" hidden title="Forget what games saved to this disk">Revert</button>
+            <button type="button" data-action="download" title="The disk as it is now, saved games included">Download .adf</button>
+          </span>
+        </div>
+        <div class="drive" data-drive="1" data-state="empty" hidden>
+          <span class="drive-led" title="Drive activity"></span>
+          <strong class="drive-label">DF1:</strong>
+          <span class="disk-name">No disk</span>
+          <span class="disk-detail"></span>
+          <span class="disk-saved" hidden>has saved games</span>
+          <span class="drive-actions">
+            <button type="button" data-action="choose">Insert disk...</button>
+            <button type="button" data-action="eject">Eject</button>
+            <button type="button" data-action="revert" hidden title="Forget what games saved to this disk">Revert</button>
+            <button type="button" data-action="download" title="The disk as it is now, saved games included">Download .adf</button>
+          </span>
+        </div>
+        <p class="disk-hint">Drop an .adf, .adz or .zip anywhere on the page to put it in DF0 (onto DF1 for DF1).</p>
+        <p class="zip-files" hidden>Disks in this zip (they go in DF0): <span class="zip-buttons"></span></p>
+        <div class="bundled-games" hidden>
+          <p class="bundled-games-row">
+            Free games:
+            <select name="bundled-game" aria-label="Free games"></select>
+            <button type="button" data-action="play-game" title="Puts the game in DF0 and restarts the Amiga">Play</button>
+          </p>
+          <p class="game-info"></p>
+        </div>
+        <p class="save-disks">
+          <button type="button" data-action="new-save-disk" title="A blank disk, for games that save to a disk of their own">
+            New blank disk
+          </button>
+          <select name="save-disk-drive" aria-label="Drive for save disks" hidden>
+            <option value="0" selected>in DF0</option>
+            <option value="1">in DF1</option>
+          </select>
+          <span class="save-disk-list" hidden>
+            <select name="save-disk" aria-label="Save disks"></select>
+            <button type="button" data-action="insert-save-disk">Insert</button>
+            <button type="button" data-action="export-save-disk" title="Download as an .adf file">Export</button>
+            <button type="button" data-action="delete-save-disk">Delete</button>
+          </span>
+        </p>
+        <p class="disk-options">
+          <label title="Runs the Amiga as fast as it can go while a drive's motor is on">
+            <input type="checkbox" name="warp" checked /> Fast loading
+          </label>
+        </p>
+        <p class="disk-drop-hint">Release to insert</p>
+        <p class="disk-message" role="status"></p>
+        <input type="file" name="disk-file" accept=".adf,.adz,.zip,.amigastate" hidden />
+      </section>
+
+      <section id="controls" class="controls" aria-label="Controllers">
+        <div class="controls-row joysticks">
+          <span class="joystick-port">
+            <strong>Port 1</strong>
+            <select name="port1-device" aria-label="Port 1">
+              <option value="mouse" selected>Mouse</option>
+              <option value="joystick">Joystick</option>
+            </select>
+            <select name="port1-keys" aria-label="Port 1 joystick keys" hidden>
+              <option value="off" selected>No keys</option>
+              <option value="numpad">Numpad 8 4 6 2, 0 fires</option>
+              <option value="arrows">Arrow keys, Space fires</option>
+              <option value="wasd">W A S D, F fires</option>
+            </select>
+            <select name="port1-pad" aria-label="Port 1 gamepad" hidden>
+              <option value="off">No gamepad</option>
+              <option value="0">Gamepad 1</option>
+              <option value="1" selected>Gamepad 2</option>
+            </select>
+          </span>
+          <span class="joystick-port">
+            <strong>Port 2 joystick</strong>
+            <select name="port2-keys" aria-label="Port 2 joystick keys">
+              <option value="off" selected>No keys</option>
+              <option value="numpad">Numpad 8 4 6 2, 0 fires</option>
+              <option value="arrows">Arrow keys, Space fires</option>
+              <option value="wasd">W A S D, F fires</option>
+            </select>
+            <select name="port2-pad" aria-label="Port 2 gamepad">
+              <option value="off">No gamepad</option>
+              <option value="0" selected>Gamepad 1</option>
+              <option value="1">Gamepad 2</option>
+            </select>
+          </span>
+        </div>
+        <div class="controls-row">
+          <label><input type="checkbox" name="sound" checked /> Sound</label>
+          <label>
+            Volume
+            <input type="range" name="volume" min="0" max="1" step="0.05" value="0.8" />
+          </label>
+          <label title="How far apart the left and right channels are; the Amiga's own is fully apart">
+            Stereo
+            <input type="range" name="separation" min="0" max="1" step="0.1" value="0.7" />
+          </label>
+          <span class="sound-hint" hidden>Click or press a key to start sound</span>
+        </div>
+        <p class="gamepad-status" aria-live="polite"></p>
+        <p class="controls-hint">
+          Click the screen to use the mouse (Esc lets it go). Most games take a joystick in port 2: choose keys for it to
+          play on the keyboard (keys used by a joystick don't type on the Amiga, so set it back to No keys for typing).
+          Gamepads work without taking any keys. Home and End are the left and right Amiga keys, Insert or Page Down is
+          Help, and Ctrl with both Amiga keys resets.
+        </p>
+      </section>
+
+      <p id="status">Starting...</p>
+      <p class="rom-line" hidden>
+        <span class="rom-summary"></span>
+      </p>
+      <nav class="emulator-links" aria-label="Emulators">
+        Emulators:
+        <a href="https://mohrt.github.io/sz81/">Timex Sinclair 1000</a>
+        <a href="https://mohrt.github.io/c64/">Commodore 64</a>
+        <strong aria-current="page">Amiga 500</strong>
+        <a href="https://mohrt.github.io/atari2600/">Atari 2600</a>
+        <a href="https://mohrt.github.io/colecovision/">ColecoVision</a>
+        <a href="https://mohrt.github.io/nes/">NES</a>
+        <a href="https://mohrt.github.io/mastersystem/">Sega Master System</a>
+        <a href="https://mohrt.github.io/genesis/">Sega Genesis</a>
+      </nav>
+      <footer class="site-links">
+        <a href="https://mohrt.com/">mohrt.com</a>
+        <a href="https://github.com/mohrt/amiga500" target="_blank" rel="noopener">Source on GitHub</a>
+        <a href="https://x.com/mohrt" target="_blank" rel="noopener">@mohrt on X</a>
+      </footer>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

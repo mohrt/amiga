@@ -1,0 +1,26 @@
+{
+  "games": [
+    {
+      "title": "MeetBall",
+      "file": "meetball.adf",
+      "url": "https://github.com/fredrik-m-j/MeetBall/releases/download/V0.78/MeetBall.adf",
+      "sha256": "56855fde420578ecee1a1ff56df14e40bb08dbae7c224f98da4da435ea513fd7",
+      "credit": "Fredrik Johansson",
+      "license": "CC0 1.0",
+      "licenseFile": "https://raw.githubusercontent.com/fredrik-m-j/MeetBall/626a98bcfc7e77540e5ff1c189f7b87dd432fbd9/LICENSE",
+      "sourceUrl": "https://github.com/fredrik-m-j/MeetBall",
+      "hint": "Bat and ball for one to four players: F1 to F4 choose each player's controls, then fire starts."
+    },
+    {
+      "title": "Space Invaders",
+      "file": "space-invaders.adf",
+      "url": "https://github.com/kotbehemot53/amiga-space-invaders/releases/download/v0.6/invaders.adf",
+      "sha256": "a3f02a8911c1b614ac30db0f93776fca6163fe561f92842377c8c2cab39ff75c",
+      "credit": "kotbehemot53",
+      "license": "GNU GPL v3",
+      "licenseFile": "https://raw.githubusercontent.com/kotbehemot53/amiga-space-invaders/7b7a0fdaedad01818050a2bbb0d9686b1a73dbf6/LICENSE",
+      "sourceUrl": "https://github.com/kotbehemot53/amiga-space-invaders",
+      "hint": "Joystick in port 2 (choose keys for it below): left, right and fire. The left mouse button quits."
+    }
+  ]
+}
