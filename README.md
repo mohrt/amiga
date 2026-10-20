@@ -20,7 +20,7 @@ Drop an `.adf`, `.adz` or `.zip` onto the page to put it in a drive. PAL and NTS
 - **Mouse:** in port 1. Click the screen to capture the mouse; Esc lets it go.
 - **Joysticks:** most games use port 2. Choose keys for it under the screen: the numpad, the arrow keys with Space, or W A S D with F. Keys used by a joystick don't type on the Amiga, so set it back to No keys for typing. Port 1 can hold a joystick instead of the mouse.
 - **Gamepads:** they work without taking any keys. Choose which gamepad goes in which port.
-- **Sound:** the stereo slider sets how far apart the left channels (0 and 3) and the right channels (1 and 2) are. The Amiga's own separation is fully apart. The power light switches the "LED" low-pass filter, as on the real machine.
+- **Sound:** the Amiga plays channels 0 and 3 only on the left and channels 1 and 2 only on the right. The Stereo slider blends them: at the Mono end all the sound is in the middle, and at the Amiga end the sides are fully apart, as on the real machine. On headphones, a setting towards Mono is easier on the ears. The power light switches the "LED" low-pass filter, as on the real machine.
 
 ## The machine
 

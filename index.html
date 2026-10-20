@@ -202,9 +202,13 @@
             Volume
             <input type="range" name="volume" min="0" max="1" step="0.05" value="0.8" />
           </label>
-          <label title="How far apart the left and right channels are; the Amiga's own is fully apart">
+          <label
+            title="Blends the Amiga's left and right channels: Mono puts all the sound in the middle, Amiga keeps them fully apart as on the real machine"
+          >
             Stereo
-            <input type="range" name="separation" min="0" max="1" step="0.1" value="0.7" />
+            <span class="range-end" aria-hidden="true">Mono</span>
+            <input type="range" name="separation" min="0" max="1" step="0.1" value="0.7" aria-label="Stereo, from mono to the Amiga's full separation" />
+            <span class="range-end" aria-hidden="true">Amiga</span>
           </label>
           <span class="sound-hint" hidden>Click or press a key to start sound</span>
         </div>
@@ -213,7 +217,8 @@
           Click the screen to use the mouse (Esc lets it go). Most games take a joystick in port 2: choose keys for it to
           play on the keyboard (keys used by a joystick don't type on the Amiga, so set it back to No keys for typing).
           Gamepads work without taking any keys. Home and End are the left and right Amiga keys, Insert or Page Down is
-          Help, and Ctrl with both Amiga keys resets.
+          Help, and Ctrl with both Amiga keys resets. The Amiga plays two of its sound channels only on the left and two only
+          on the right; on headphones, move Stereo towards Mono to blend them.
         </p>
       </section>
 

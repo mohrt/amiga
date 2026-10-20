@@ -592,6 +592,11 @@ body.needs-roms .controls {
   width: 6rem;
 }
 
+.range-end {
+  color: #888;
+  font-size: 0.75rem;
+}
+
 .sound-hint {
   color: #c9a227;
 }
