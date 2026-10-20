@@ -567,7 +567,6 @@ body.needs-roms .controls {
   display: block;
 }
 
-.zip-files:not([hidden]),
 .bundled-games-row,
 .save-disks,
 .disk-options {
@@ -603,13 +602,7 @@ body.needs-roms .controls {
   color: var(--accent-soft);
 }
 
-.zip-buttons {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.zip-buttons button.current {
+.swap-disk {
   border-color: var(--accent);
 }
 

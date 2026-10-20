@@ -65,20 +65,20 @@ function requireChild<T extends Element>(root: Element, selector: string): T {
 
 /**
  * The floppy drives under the screen: what is in DF0 (and DF1), buttons to
- * insert, eject, revert and download disks, the other disks of a zip, the
- * free games and blank save disks. Files can be dropped anywhere on the page
+ * insert, eject, revert and download disks, a menu in each drive for
+ * swapping in the other disks of a set, the free games and blank save disks. Files can be dropped anywhere on the page
  * (onto DF1's row to go in DF1).
  */
 export class DiskPanel {
   private readonly fileInput: HTMLInputElement;
   private readonly message: HTMLElement;
-  private readonly zipFiles: HTMLElement;
-  private readonly zipButtons: HTMLElement;
-  private readonly zipDrive: HTMLSelectElement;
   private readonly gamePicker: HTMLSelectElement;
   private readonly gameInfo: HTMLElement;
   private readonly saveDiskSelect: HTMLSelectElement;
   private readonly drives: HTMLElement[];
+  private readonly swapPickers: HTMLSelectElement[];
+  /** The file of the set that is in each drive, if the disk there came from it. */
+  private readonly setDiskIn: (string | null)[] = [null, null];
   private games: GameListing[] = [];
   private zipChoices: File[] = [];
   /** The drive the file picker was opened for. */
@@ -90,13 +90,11 @@ export class DiskPanel {
   ) {
     this.fileInput = requireChild(root, 'input[name="disk-file"]');
     this.message = requireChild(root, '.disk-message');
-    this.zipFiles = requireChild(root, '.zip-files');
-    this.zipButtons = requireChild(root, '.zip-buttons');
-    this.zipDrive = requireChild(root, 'select[name="zip-drive"]');
     this.gamePicker = requireChild(root, 'select[name="bundled-game"]');
     this.gameInfo = requireChild(root, '.game-info');
     this.saveDiskSelect = requireChild(root, 'select[name="save-disk"]');
     this.drives = [requireChild(root, '[data-drive="0"]'), requireChild(root, '[data-drive="1"]')];
+    this.swapPickers = this.drives.map((row) => requireChild<HTMLSelectElement>(row, 'select.swap-disk'));
 
     this.drives.forEach((row, drive) => {
       const button = (action: string) => requireChild<HTMLButtonElement>(row, `[data-action="${action}"]`);
@@ -112,6 +110,12 @@ export class DiskPanel {
         if (confirm('Forget what games have saved to this disk?')) this.run(() => this.callbacks.onRevert(drive));
       });
       button('download').addEventListener('click', () => this.run(() => this.callbacks.onDownload(drive)));
+      const picker = this.swapPickers[drive];
+      picker.addEventListener('change', () => {
+        const file = this.zipChoices[Number(picker.value)];
+        picker.value = '';
+        if (file) this.run(() => this.callbacks.onSwapDisk(file, drive));
+      });
     });
     this.fileInput.addEventListener('change', () => {
       const files = [...(this.fileInput.files ?? [])];
@@ -195,6 +199,7 @@ export class DiskPanel {
     requireChild(row, '.disk-name').textContent = name;
     requireChild(row, '.disk-detail').textContent = detail;
     this.setSavedChanges(drive, hasSavedChanges);
+    this.markSetDisk(drive, null);
   }
 
   showEmpty(drive: number): void {
@@ -203,6 +208,7 @@ export class DiskPanel {
     requireChild(row, '.disk-name').textContent = 'No disk';
     requireChild(row, '.disk-detail').textContent = '';
     this.setSavedChanges(drive, false);
+    this.markSetDisk(drive, null);
   }
 
   /** The disk has games' saves on it: offer to revert it, and to download it. */
@@ -215,8 +221,6 @@ export class DiskPanel {
   setDriveConnected(drive: number, connected: boolean): void {
     this.drives[drive].hidden = !connected;
     requireChild<HTMLSelectElement>(this.root, 'select[name="save-disk-drive"]').hidden = !connected;
-    this.zipDrive.hidden = !connected;
-    if (!connected) this.zipDrive.value = '0';
   }
 
   setLed(drive: number, on: boolean): void {
@@ -236,26 +240,35 @@ export class DiskPanel {
     requireChild(this.root, '[data-drive="hd"]').classList.toggle('active', on);
   }
 
-  /** Buttons for the disks given together (a zip's, or several files), for swapping disks during a game. */
-  setZipFiles(files: File[], current: string | null): void {
+  /** The disks given together (a zip's, or several files), offered in each drive's Swap menu during a game. */
+  setZipFiles(files: File[]): void {
     this.zipChoices = files;
-    this.zipFiles.hidden = files.length < 2;
-    const labels = shortLabels(files.map((file) => file.name));
-    this.zipButtons.replaceChildren(
-      ...files.map((file, i) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = labels[i];
-        button.title = file.name;
-        button.classList.toggle('current', file.name === current);
-        button.addEventListener('click', () => this.run(() => this.callbacks.onSwapDisk(file, Number(this.zipDrive.value) || 0)));
-        return button;
-      }),
-    );
+    this.renderSwapPickers();
   }
 
-  get zipContents(): File[] {
-    return this.zipChoices;
+  /** Notes which disk of the set is in a drive (null for none), for the tags in the Swap menus. */
+  markSetDisk(drive: number, fileName: string | null): void {
+    this.setDiskIn[drive] = fileName;
+    this.renderSwapPickers();
+  }
+
+  private renderSwapPickers(): void {
+    const labels = shortLabels(this.zipChoices.map((file) => file.name));
+    this.swapPickers.forEach((picker, drive) => {
+      picker.hidden = this.zipChoices.length < 2;
+      const prompt = new Option(`Swap disk into DF${drive}...`, '');
+      prompt.disabled = true;
+      picker.replaceChildren(
+        prompt,
+        ...this.zipChoices.map((file, i) => {
+          const where = this.setDiskIn.flatMap((name, d) => (name === file.name ? [`DF${d}`] : []));
+          const option = new Option(where.length ? `${labels[i]} (in ${where.join(', ')})` : labels[i], String(i));
+          option.title = file.name;
+          return option;
+        }),
+      );
+      picker.value = '';
+    });
   }
 
   setSaveDisks(disks: SaveDiskOption[]): void {

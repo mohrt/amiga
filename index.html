@@ -136,6 +136,7 @@
           <span class="disk-detail"></span>
           <span class="disk-saved" hidden>has saved games</span>
           <span class="drive-actions">
+            <select class="swap-disk" aria-label="Swap a disk of the set into DF0" hidden></select>
             <button type="button" data-action="choose">Insert disk...</button>
             <button type="button" data-action="eject">Eject</button>
             <button type="button" data-action="revert" hidden title="Forget what games saved to this disk">Revert</button>
@@ -149,6 +150,7 @@
           <span class="disk-detail"></span>
           <span class="disk-saved" hidden>has saved games</span>
           <span class="drive-actions">
+            <select class="swap-disk" aria-label="Swap a disk of the set into DF1" hidden></select>
             <button type="button" data-action="choose">Insert disk...</button>
             <button type="button" data-action="eject">Eject</button>
             <button type="button" data-action="revert" hidden title="Forget what games saved to this disk">Revert</button>
@@ -164,15 +166,7 @@
         </div>
         <p class="disk-hint">
           Drop .adf, .adz or .zip files anywhere on the page to put them in DF0 (onto DF1 for DF1). Several at once, such as
-          all the disks of a game, give a button for each disk.
-        </p>
-        <p class="zip-files" hidden>
-          <span class="zip-label">Your disks, to swap in:</span>
-          <span class="zip-buttons"></span>
-          <select name="zip-drive" aria-label="Drive the disk buttons put disks in" hidden>
-            <option value="0" selected>into DF0</option>
-            <option value="1">into DF1</option>
-          </select>
+          all the disks of a game, give each drive a Swap menu for changing disks.
         </p>
         <div class="bundled-games" hidden>
           <p class="bundled-games-row">

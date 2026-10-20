@@ -281,6 +281,7 @@ async function main(): Promise<void> {
       }
       const game = bundledGames.find((entry) => entry.file.split('/').pop() === file.name);
       await insertDisk(drive, media.disk, game?.title ?? titleFromFileName(file.name));
+      diskPanel.markSetDisk(drive, file.name);
     };
 
     /** Files dropped or chosen together: every disk in them gets a button, and the first goes in. */
@@ -288,16 +289,13 @@ async function main(): Promise<void> {
       const files = (await Promise.all(chosen.map((file) => filesFrom(file)))).flat();
       if (chosen.length > 1) files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
       const first = firstDisk(files);
-      diskPanel.setZipFiles(files.length > 1 ? files : [], first.name);
+      diskPanel.setZipFiles(files.length > 1 ? files : []);
       await openDisk(first, drive);
     };
 
     const diskPanel = new DiskPanel(requireElement('#disk-panel'), {
       onFiles: openFiles,
-      onSwapDisk: async (file, drive) => {
-        diskPanel.setZipFiles(diskPanel.zipContents, file.name);
-        await openDisk(file, drive);
-      },
+      onSwapDisk: openDisk,
       onEject: eject,
       onRevert: async (drive) => {
         const disk = await diskSaves.revert(drive);
