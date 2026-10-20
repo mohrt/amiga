@@ -5,6 +5,11 @@ import { Int } from '../custom/registers';
 /** A word of MFM passes the head every 32 µs: 113.5 colour clocks, counted here in halves. */
 const WORD_HALF_CCKS = 227;
 const HALF_WORD = WORD_HALF_CCKS >> 1;
+/**
+ * Disk DMA counts as recent for half a second (in words passing the head) after its last
+ * transfer, which covers the head stepping between tracks.
+ */
+const RECENT_WORDS = 15625;
 
 const enum Mode {
   Off,
@@ -47,6 +52,9 @@ export class DiskController {
   dsklen = 0;
   sync = 0x4489;
   private armed = false;
+  /** Words that have passed the head, and the count at the last DMA transfer. */
+  private wordTicks = 0;
+  private lastTransferTick = -RECENT_WORDS;
   private mode = Mode.Off;
   private remaining = 0;
   private wordTimer = WORD_HALF_CCKS;
@@ -75,6 +83,11 @@ export class DiskController {
 
   get dmaActive(): boolean {
     return this.mode !== Mode.Off;
+  }
+
+  /** A disk is being read or written: DMA is on, or moved a word within the last half second. */
+  get recentlyActive(): boolean {
+    return this.mode !== Mode.Off || this.wordTicks - this.lastTransferTick < RECENT_WORDS;
   }
 
   writePointerHigh(value: number): void {
@@ -160,6 +173,7 @@ export class DiskController {
   }
 
   private word(): void {
+    this.wordTicks++;
     if (this.wordEqual > 0) this.wordEqual--;
     const drive = this.activeDrive;
     const track = drive?.track ?? null;
@@ -197,6 +211,7 @@ export class DiskController {
   }
 
   private transferred(): void {
+    this.lastTransferTick = this.wordTicks;
     this.dskpt = (this.dskpt + 2) & 0x1ffffe;
     if (--this.remaining <= 0) this.finish();
   }

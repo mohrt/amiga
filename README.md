@@ -48,7 +48,7 @@ No ROM or game files are included in this repository.
 
 Your disk images are never changed. What games write to a disk is kept in the browser (only the sectors that changed) and put back whenever that image is inserted again. **Revert** forgets it, and **Download .adf** gives you the disk as it is now. **New blank disk** makes an empty disk for games that want a save disk of their own. Format it from the game or from Workbench.
 
-**Fast loading** runs the Amiga flat out while a drive's motor is on, and the sound is skipped meanwhile.
+**Fast loading** runs the Amiga flat out while a disk is being read (disk DMA within the last half second, with the motor on), and the sound is skipped meanwhile. Many games leave the motor on once they've loaded, so the motor alone doesn't count.
 
 ## Free games
 

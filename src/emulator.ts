@@ -18,9 +18,14 @@ export class Emulator {
     this.amiga.onFrame = (framebuffer, rows) => screen.capture(framebuffer, rows);
   }
 
-  /** A drive's motor is running with a disk in. */
+  /**
+   * A disk is being read or written: a drive's motor is on and disk DMA has just been moving
+   * words. Many games leave the motor on once they have taken over the machine, so the motor
+   * alone doesn't say a disk is being read.
+   */
   get loading(): boolean {
-    return this.amiga.drives.some((drive) => drive.motor && drive.disk !== null);
+    const { amiga } = this;
+    return amiga.paula.floppy.recentlyActive && amiga.drives.some((drive) => drive.motor && drive.disk !== null);
   }
 
   get warped(): boolean {
