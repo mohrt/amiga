@@ -9,6 +9,7 @@ import {
   joinSplitKickstart,
   kickstartChecksumOk,
   preferredKickstart,
+  rankKickstarts,
   type StoredRom,
 } from '../src/roms/system-roms';
 import { MemoryStore } from '../src/storage/store';
@@ -102,10 +103,22 @@ describe('real Kickstarts from roms/', () => {
     expect(result.warning).toBeNull();
   });
 
-  it.skipIf(!real('kick13.rom') || !real('kick31.rom') || !real('kick12.rom'))('picks Kickstart 1.3 from several, as from a ROM collection', () => {
-    const roms = ['kick31.rom', 'kick12.rom', 'kick13.rom'].map((name) => identifyKickstart(name, real(name)!));
-    expect(preferredKickstart(roms).title).toBe('Kickstart 1.3 (34.5)');
-    expect(preferredKickstart([roms[1], roms[0]]).title).toBe('Kickstart 3.1 (40.63, A500/A600/A2000)');
+  it.skipIf(!real('kick13.rom') || !real('kick31.rom') || !real('kick12.rom'))('picks the newest from several, as from a ROM collection, and keeps the others to switch to', async () => {
+    const roms = ['kick12.rom', 'kick13.rom', 'kick31.rom', 'kick13-overdump.rom'].map((name) => identifyKickstart(name, real(name)!));
+    expect(preferredKickstart(roms).title).toBe('Kickstart 3.1 (40.63, A500/A600/A2000)');
+    // The overdump is the same ROM as kick13.rom, so it is offered once.
+    expect(rankKickstarts(roms).map((rom) => rom.title)).toEqual([
+      'Kickstart 3.1 (40.63, A500/A600/A2000)',
+      'Kickstart 1.3 (34.5)',
+      'Kickstart 1.2 (33.180)',
+    ]);
+    const store = new SystemRomStore(new MemoryStore<StoredRom>());
+    await store.save(roms[2]);
+    await store.saveChoices(rankKickstarts(roms));
+    expect((await store.loadChoices()).length).toBe(3);
+    expect((await store.load())?.title).toBe('Kickstart 3.1 (40.63, A500/A600/A2000)');
+    await store.forget();
+    expect(await store.loadChoices()).toEqual([]);
   });
 
   it.skipIf(!real('kick13-overdump.rom'))('recognises an overdump of it', () => {

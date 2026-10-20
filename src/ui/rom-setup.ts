@@ -7,6 +7,7 @@ import {
   joinSplitKickstart,
   looksLikeKickstart,
   preferredKickstart,
+  rankKickstarts,
   type Kickstart,
   type SystemRomStore,
 } from '../roms/system-roms';
@@ -71,6 +72,8 @@ export function askForKickstart(
   const row = query<HTMLElement>('[data-rom="kickstart"]');
   const status = row.querySelector<HTMLElement>('.rom-status')!;
   const keyRow = query<HTMLElement>('[data-rom="key"]');
+  const choiceRow = query<HTMLElement>('.rom-choice');
+  const choiceSelect = query<HTMLSelectElement>('select[name="kickstart-choice"]');
   heading.textContent = options.whileRunning ? 'Change the Kickstart ROM' : 'First, load a Kickstart ROM';
   startButton.textContent = options.whileRunning ? 'Restart the Amiga with this ROM' : 'Start the Amiga';
   backButton.hidden = !options.whileRunning;
@@ -81,6 +84,8 @@ export function askForKickstart(
   let encrypted: File | null = null;
   /** One half of a ROM dumped from its two chips, waiting for the other. */
   let half: File | null = null;
+  /** The Kickstarts to switch between, when several came together (newest first). */
+  let choices: Kickstart[] = [];
   const listeners = new AbortController();
 
   const render = () => {
@@ -91,6 +96,16 @@ export function askForKickstart(
     keyRow.hidden = !encrypted;
     startButton.disabled = !kickstart;
     forgetButton.hidden = !kickstart;
+    choiceRow.hidden = choices.length < 2;
+    choiceSelect.replaceChildren(
+      ...choices.map((choice, i) => {
+        const option = document.createElement('option');
+        option.value = String(i);
+        option.textContent = choice.title;
+        option.selected = !!kickstart && choice.data.length === kickstart.data.length && choice.title === kickstart.title;
+        return option;
+      }),
+    );
   };
 
   const use = async (rom: Kickstart) => {
@@ -145,6 +160,8 @@ export function askForKickstart(
     }
     if (found.length > 0) {
       // The other files of a batch (a collection's ROMs for other Amigas) don't matter once one fits.
+      choices = rankKickstarts(found);
+      await store.saveChoices(choices.length > 1 ? choices : []);
       await use(preferredKickstart(found));
       half = null;
       errors.length = 0;
@@ -152,6 +169,19 @@ export function askForKickstart(
     message.textContent = summarise(errors);
     render();
   };
+
+  choiceSelect.addEventListener(
+    'change',
+    () => {
+      const choice = choices[Number(choiceSelect.value)];
+      if (choice) void use(choice).then(render);
+    },
+    { signal: listeners.signal },
+  );
+  void store.loadChoices().then((stored) => {
+    choices = stored;
+    render();
+  });
 
   root.querySelectorAll<HTMLButtonElement>('[data-action="choose-roms"]').forEach((button) =>
     button.addEventListener('click', () => fileInput.click(), { signal: listeners.signal }),
@@ -170,6 +200,7 @@ export function askForKickstart(
     () => {
       kickstart = null;
       encrypted = half = null;
+      choices = [];
       message.textContent = '';
       void store.forget().then(render);
     },

@@ -39,17 +39,33 @@ const KNOWN_ROMS: Record<number, KnownRom> = {
   0x1e62d4a5: { name: 'Kickstart 3.1 (40.60, CD32)', unsuitable: 'it is made for the CD32 (68020 and AGA)' },
 };
 
-/** The best Kickstarts for an A500, best first: 1.3 runs the most games. */
-const PREFERRED_ROMS = [0xc4f0f55f, 0xfc24ae0d, 0xc3bdb240, 0x43b0df7b, 0x64466c2a, 0x83028fb5, 0xa6ce1636, 0x9ed783d0];
+/** Commodore's Kickstarts for an A500, newest first: 3.1, 2.05, 2.04, 1.3, 1.2. */
+const PREFERRED_ROMS = [0xfc24ae0d, 0x43b0df7b, 0x64466c2a, 0x83028fb5, 0xc3bdb240, 0xc4f0f55f, 0xa6ce1636, 0x9ed783d0];
 
-/** The Kickstart to use from several (a whole ROM collection dropped at once). */
+function preferenceRank(rom: Kickstart): number {
+  const known = PREFERRED_ROMS.indexOf(crc32(rom.data));
+  if (known >= 0) return known;
+  return PREFERRED_ROMS.length + (rom.warning ? 1 : 0);
+}
+
+/**
+ * Several Kickstarts (a ROM collection's) best first, each ROM once. Collections also hold
+ * betas, hacks and ROMs for other models; when Commodore's own A500 ROMs are among them, only those count.
+ */
+export function rankKickstarts(roms: Kickstart[]): Kickstart[] {
+  const unique = new Map<number, Kickstart>();
+  for (const rom of roms) {
+    const crc = crc32(rom.data);
+    if (!unique.has(crc)) unique.set(crc, rom);
+  }
+  const all = [...unique.values()];
+  const originals = all.filter((rom) => PREFERRED_ROMS.includes(crc32(rom.data)));
+  return (originals.length ? originals : all).sort((a, b) => preferenceRank(a) - preferenceRank(b));
+}
+
+/** The Kickstart to use from several: the newest Commodore made for the A500. */
 export function preferredKickstart(roms: Kickstart[]): Kickstart {
-  const rank = (rom: Kickstart) => {
-    const known = PREFERRED_ROMS.indexOf(crc32(rom.data));
-    if (known >= 0) return known;
-    return PREFERRED_ROMS.length + (rom.warning ? 1 : 0);
-  };
-  return roms.reduce((best, rom) => (rank(rom) < rank(best) ? rom : best));
+  return rankKickstarts(roms)[0];
 }
 
 /** Kickstart versions (from the ROM header) by the number Commodore marketed them as. */
@@ -197,6 +213,7 @@ export function joinSplitKickstart(first: Uint8Array, second: Uint8Array): Uint8
 }
 
 const KICKSTART_KEY = 'kickstart';
+const CHOICE_PREFIX = 'choice-';
 
 /**
  * The user's Kickstart, kept in browser storage (IndexedDB) so it only has to
@@ -222,7 +239,32 @@ export class SystemRomStore {
     return this.store.put(KICKSTART_KEY, { name: rom.name, data: rom.data });
   }
 
-  forget(): Promise<void> {
-    return this.store.delete(KICKSTART_KEY);
+  /** The other Kickstarts that came with it (from a collection), offered to switch to. */
+  async loadChoices(): Promise<Kickstart[]> {
+    const choices: Kickstart[] = [];
+    for (const [key, stored] of await this.store.entries()) {
+      if (!key.startsWith(CHOICE_PREFIX)) continue;
+      try {
+        choices.push(identifyKickstart(stored.name, stored.data));
+      } catch {
+        // A ROM that no longer identifies is left out.
+      }
+    }
+    return rankKickstarts(choices);
+  }
+
+  /** Replaces the Kickstarts offered to switch to. */
+  async saveChoices(roms: Kickstart[]): Promise<void> {
+    await this.forgetChoices();
+    for (const rom of roms) await this.store.put(`${CHOICE_PREFIX}${crc32(rom.data).toString(16)}`, { name: rom.name, data: rom.data });
+  }
+
+  private async forgetChoices(): Promise<void> {
+    for (const [key] of await this.store.entries()) if (key.startsWith(CHOICE_PREFIX)) await this.store.delete(key);
+  }
+
+  async forget(): Promise<void> {
+    await this.store.delete(KICKSTART_KEY);
+    await this.forgetChoices();
   }
 }

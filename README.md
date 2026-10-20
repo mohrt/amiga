@@ -39,7 +39,7 @@ No ROM or game files are included in this repository.
 - **Kickstart:** the Amiga's operating system ROM is still under copyright, so the site never serves it. On the first visit the page shows a setup panel in place of the screen, asking for a Kickstart image. Kickstart 1.3 is the A500's own and runs the most games; 1.2, 2.04 and 3.1 for the A500 work too.
   - The panel recognises Commodore's originals by checksum. It turns away ROMs made for later Amigas, such as those for the A1200, A3000, A4000 and CD32, which need a newer CPU.
   - It also accepts byte-swapped dumps, overdumps (a 256K ROM repeated twice), dumps of the two ROM chips, and Amiga Forever's encrypted ROMs together with their `rom.key`.
-  - A whole ROM collection works too, even one with a zip for each ROM inside a zip: the panel picks the best Kickstart for the A500 from it (1.3, then 3.1, 2.04, 2.05 and 1.2).
+  - A whole ROM collection works too, even one with a zip for each ROM inside a zip. The panel uses the newest Kickstart for the A500 in it (3.1, then 2.05, 2.04, 1.3 and 1.2). Its **Use** menu switches to any of the others found, and they're kept for later visits too. Kickstart 1.3 runs the most A500 games.
   - The ROM is kept in the browser's IndexedDB, with persistent storage requested, so later visits start straight away. **System ROMs...** in the toolbar changes or forgets it.
 - **AROS:** the free replacement ROMs (AROS Public License) are downloaded by `npm run fetch:roms`. Only the tests use them.
 

@@ -33,13 +33,20 @@
                 <code>Kickstart v1.3 r34.005 (1987-12)(Commodore)(A500-A1000-A2000-CDTV)[!].rom</code>
               </p>
               <p class="rom-status"></p>
+              <p class="rom-choice" hidden>
+                <label>
+                  Use
+                  <select name="kickstart-choice" aria-label="Kickstart to use"></select>
+                </label>
+                <span>from the Kickstarts you loaded (the newest is chosen first)</span>
+              </p>
             </li>
             <li data-rom="key" class="optional" hidden>
               <p class="rom-heading"><strong>rom.key</strong> <span class="rom-need">Needed for that ROM</span></p>
               <p class="rom-detail">The ROM is encrypted. Add the <code>rom.key</code> file that came with it.</p>
             </li>
           </ul>
-          <p class="rom-tip">Pick the files, or a .zip containing them. A whole ROM collection works too: the best Kickstart for the A500 in it is used.</p>
+          <p class="rom-tip">Pick the files, or a .zip containing them. A whole ROM collection works too: the newest Kickstart for the A500 in it is used, and you can switch to the others.</p>
           <div class="rom-actions">
             <button type="button" class="primary" data-action="choose-roms">Choose ROM files...</button>
             <button type="button" data-action="start" disabled>Start the Amiga</button>
