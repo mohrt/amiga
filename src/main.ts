@@ -3,6 +3,7 @@ import { AudioOutput } from './audio/audio-output';
 import { FloppyDisk } from './drive/adf';
 import { STATE_EXTENSION, filesFrom, firstDisk, readMedia, titleFromFileName } from './drive/load';
 import { Emulator } from './emulator';
+import type { HardDiskImage } from './ide/image';
 import { fetchGame, loadGameManifest, type BundledGame } from './games';
 import { BrowserInput, type KeySetName } from './io/browser-input';
 import { GamepadManager, padName, readGamepad } from './io/gamepad-input';
@@ -10,20 +11,18 @@ import type { Port1Device } from './io/ports';
 import { Screen } from './render/screen';
 import { SystemRomStore, type Kickstart, type StoredRom } from './roms/system-roms';
 import { DiskSaves, type DiskSaveRecord, type SaveDiskRecord } from './storage/disk-saves';
+import { HardDisks } from './storage/hard-disks';
 import { SaveStates, decodeSession, encodeSession, type SaveStateRecord, type Session } from './storage/save-states';
 import { memoryStores, openBrowserStores, type KeyValueStore } from './storage/store';
 import { DiskPanel } from './ui/disk-panel';
 import { downloadFile } from './ui/download';
-import { askForKickstart } from './ui/rom-setup';
-import { Settings } from './ui/settings';
-import { attachToolbar, type MachineChoices } from './ui/toolbar';
+import { DEFAULT_CHOICES, MEMORY_CHOICES, askForMachine, type MachineChoices, type MachineSetup } from './ui/machine-setup';
+import { JsonRecord, Settings } from './ui/settings';
+import { attachToolbar } from './ui/toolbar';
 import { crc32 } from './util/crc32';
 
 /** Form fields whose values are remembered between visits. */
 const REMEMBERED_SETTINGS = [
-  'tv',
-  'memory',
-  'external-drive',
   'port1-device',
   'port1-keys',
   'port1-pad',
@@ -38,6 +37,18 @@ const REMEMBERED_SETTINGS = [
 /** How often games' saves to their disks are written to browser storage. */
 const DISK_SAVE_INTERVAL_MS = 2000;
 const DRIVES = 2;
+
+/** How the machine was set up last time (earlier versions of the page kept some of it with the other settings). */
+function rememberedChoices(record: JsonRecord<MachineChoices>, settings: Settings): MachineChoices {
+  const older: Partial<MachineChoices> = {};
+  if (settings.get('tv') === 'ntsc') older.standard = 'ntsc';
+  const memory = MEMORY_CHOICES[String(settings.get('memory'))];
+  if (memory) older.memory = memory;
+  if (settings.get('external-drive') === true) older.externalDrive = true;
+  return { ...DEFAULT_CHOICES, ...older, ...record.read() };
+}
+
+const megabytes = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`;
 
 function requireElement<T extends HTMLElement>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -82,12 +93,42 @@ async function main(): Promise<void> {
         "This browser isn't letting the page store files, so the ROM will be forgotten when you close it.";
     }
     const romStore = new SystemRomStore(stores.systemRoms as KeyValueStore<StoredRom>);
+    const machineRecord = new JsonRecord<MachineChoices>('amiga-machine');
+    let choices = rememberedChoices(machineRecord, settings);
+    const hardDisks = new HardDisks(stores.hardDisk);
+    /** The hard disk while it is attached (loaded from storage when the drive is on). */
+    let hardDiskImage: HardDiskImage | null = null;
+    let hardDiskName = 'Hard disk';
+
+    const exportHardDisk = async () => {
+      if (hardDiskImage) await hardDisks.persist(hardDiskImage);
+      const image = hardDiskImage ?? (await hardDisks.load());
+      const info = await hardDisks.info();
+      if (image) downloadFile(image.bytes, `${slug(info?.name ?? 'hard disk')}.hdf`);
+    };
+    /** Carries out what the setup panel asked for the stored hard disk, then loads it if the drive is on. */
+    const applyHardDisk = async (setup: MachineSetup) => {
+      if (hardDiskImage) await hardDisks.persist(hardDiskImage);
+      if (setup.hardDisk.kind === 'new') await hardDisks.replace(setup.hardDisk.image, setup.hardDisk.name);
+      if (setup.hardDisk.kind === 'delete') await hardDisks.delete();
+      hardDiskImage = setup.hardDisk.kind === 'new' ? setup.hardDisk.image : null;
+      if (setup.choices.hardDrive && !hardDiskImage) hardDiskImage = await hardDisks.load();
+      hardDiskName = (await hardDisks.info())?.name ?? 'Hard disk';
+    };
+
     let kickstart: Kickstart | null = await romStore.load();
     if (!kickstart) {
       status.textContent = 'Load a Kickstart ROM above to switch the Amiga on.';
-      kickstart = await askForKickstart(romSetup, romStore, null);
+      const setup = await askForMachine(romSetup, romStore, null, { choices, hardDisk: await hardDisks.info(), exportHardDisk });
+      if (!setup) throw new Error('No Kickstart ROM.');
+      kickstart = setup.kickstart;
+      choices = setup.choices;
+      machineRecord.write(choices);
+      await applyHardDisk(setup);
+    } else if (choices.hardDrive) {
+      hardDiskImage = await hardDisks.load();
+      hardDiskName = (await hardDisks.info())?.name ?? 'Hard disk';
     }
-    if (!kickstart) throw new Error('No Kickstart ROM.');
     let kickstartCrc = crc32(kickstart.data);
 
     // --- The machine -----------------------------------------------------------------
@@ -111,6 +152,7 @@ async function main(): Promise<void> {
     const updateStatus = () => {
       const parts = [kickstart!.title, amiga.standard.toUpperCase(), memoryLabel(amiga.memory)];
       if (amiga.drives[1].connected) parts.push('DF1');
+      if (amiga.gayle) parts.push(`DH0 ${megabytes(amiga.gayle.drive.image.bytes.length)}`);
       status.textContent = parts.join(' · ');
     };
 
@@ -124,6 +166,9 @@ async function main(): Promise<void> {
         diskSaves.eject(1);
         diskPanel.showEmpty(1);
       }
+      const attached = choices.hardDrive ? hardDiskImage : null;
+      amiga.attachHardDisk(attached);
+      diskPanel.showHardDisk(choices.hardDrive, attached ? hardDiskName : null, attached ? megabytes(attached.bytes.length) : '');
     };
 
     const powerCycle = () => {
@@ -150,12 +195,17 @@ async function main(): Promise<void> {
       await diskSaves.persist(drive, disk);
       if (diskSaves.origin(drive)?.kind === 'image') diskPanel.setSavedChanges(drive, true);
     };
-    const persistAll = () => Promise.all([0, 1].map((drive) => persistDisk(drive)));
+    const persistHardDisk = async () => {
+      if (hardDiskImage) await hardDisks.persist(hardDiskImage);
+    };
+    const persistAll = () => Promise.all([...[0, 1].map((drive) => persistDisk(drive)), persistHardDisk()]);
     setInterval(() => {
       for (let drive = 0; drive < DRIVES; drive++) {
         // Wait for the motor to stop, so a track being written is finished.
         if (!amiga.drives[drive].motor) void persistDisk(drive).catch((error: unknown) => console.warn('Could not keep the disk:', error));
       }
+      // And for the hard drive to go quiet, so a file being written is complete.
+      if (amiga.gayle && amiga.gayle.drive.activity === 0) void persistHardDisk().catch((error: unknown) => console.warn('Could not keep the hard disk:', error));
     }, DISK_SAVE_INTERVAL_MS);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') void persistAll();
@@ -198,15 +248,11 @@ async function main(): Promise<void> {
     };
     const restoreSession = async (session: Session) => {
       if (session.kickstartCrc !== kickstartCrc) {
-        throw new Error(`That state was saved with ${session.kickstartTitle}; load that Kickstart (System ROMs...) to use it.`);
+        throw new Error(`That state was saved with ${session.kickstartTitle}; load that Kickstart (Machine setup...) to use it.`);
       }
       await persistAll();
-      const choices: MachineChoices = {
-        standard: session.standard,
-        memory: session.memory as MemoryConfig,
-        externalDrive: session.externalDrive,
-      };
-      toolbar.showChoices(choices);
+      choices = { ...choices, standard: session.standard, memory: session.memory as MemoryConfig, externalDrive: session.externalDrive };
+      machineRecord.write(choices);
       applyMachine(choices);
       session.disks.forEach((saved, drive) => {
         const disk = saved ? FloppyDisk.fromAdf(saved.adf, saved.name) : null;
@@ -327,10 +373,6 @@ async function main(): Promise<void> {
         if (document.fullscreenElement) void document.exitFullscreen();
         else void screenFrame.requestFullscreen().then(focusScreen);
       },
-      onMachine: (choices) => {
-        applyMachine(choices);
-        powerCycle();
-      },
       onSaveState: async () => {
         await saveStates.add(sessionName(), await currentSession());
         await refreshStates();
@@ -364,23 +406,33 @@ async function main(): Promise<void> {
       diskPanel.setGames(games.map((game) => ({ ...game, licenseHref: href(game.licenseUrl), sourceHref: href(game.sourceUrl) })));
     });
 
-    /** Shows the ROM setup over the paused Amiga; a new Kickstart takes effect with a power cycle. */
-    const changeRoms = async () => {
+    /** Shows Machine setup over the paused Amiga; what it sets takes effect with a power cycle. */
+    const openMachineSetup = async () => {
       if (changingRoms) return;
       changingRoms = true;
       audio?.flush();
-      const updated = await askForKickstart(romSetup, romStore, await romStore.load(), { whileRunning: true });
+      await persistHardDisk();
+      const setup = await askForMachine(romSetup, romStore, await romStore.load(), {
+        whileRunning: true,
+        choices,
+        hardDisk: await hardDisks.info(),
+        exportHardDisk,
+      });
       changingRoms = false;
-      if (updated) {
+      if (setup) {
         await persistAll();
-        kickstart = updated;
-        kickstartCrc = crc32(updated.data);
-        amiga.setKickstart(updated.data);
+        await applyHardDisk(setup);
+        kickstart = setup.kickstart;
+        kickstartCrc = crc32(setup.kickstart.data);
+        amiga.setKickstart(setup.kickstart.data);
+        choices = setup.choices;
+        machineRecord.write(choices);
+        applyMachine(choices);
         powerCycle();
       }
       focusScreen();
     };
-    requireElement<HTMLButtonElement>('[data-action="change-roms"]').addEventListener('click', () => void changeRoms());
+    requireElement<HTMLButtonElement>('[data-action="machine-setup"]').addEventListener('click', () => void openMachineSetup());
 
     // --- Inputs ----------------------------------------------------------------------
     const input = new BrowserInput(amiga, canvas);
@@ -456,6 +508,7 @@ async function main(): Promise<void> {
 
     // --- Main loop -------------------------------------------------------------------
     const leds = [false, false];
+    let hardDiskLed = false;
     let last = performance.now();
     let wasWarped = false;
     const frame = (now: number) => {
@@ -477,11 +530,16 @@ async function main(): Promise<void> {
           diskPanel.setLed(drive, on);
         }
       }
+      const hardDiskOn = (amiga.gayle?.drive.activity ?? 0) > 0;
+      if (hardDiskOn !== hardDiskLed) {
+        hardDiskLed = hardDiskOn;
+        diskPanel.setHardDiskLed(hardDiskOn);
+      }
       screen.present();
       requestAnimationFrame(frame);
     };
 
-    applyMachine(toolbar.choices);
+    applyMachine(choices);
     diskPanel.showEmpty(0);
     diskPanel.showEmpty(1);
     powerCycle();

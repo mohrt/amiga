@@ -47,6 +47,50 @@
             </li>
           </ul>
           <p class="rom-tip">Pick the files, or a .zip containing them. A whole ROM collection works too: the newest Kickstart for the A500 in it is used, and you can switch to the others.</p>
+          <div class="setup-section">
+            <h2>Machine</h2>
+            <p class="setup-row">
+              <label>
+                TV
+                <select name="tv" aria-label="TV standard">
+                  <option value="pal" selected>PAL (50 Hz)</option>
+                  <option value="ntsc">NTSC (60 Hz)</option>
+                </select>
+              </label>
+              <label>
+                Memory
+                <select name="memory" aria-label="Memory">
+                  <option value="512+512" selected>512K chip + 512K slow</option>
+                  <option value="512">512K chip only</option>
+                  <option value="1024">1MB chip</option>
+                </select>
+              </label>
+              <label><input type="checkbox" name="external-drive" /> External drive DF1</label>
+            </p>
+          </div>
+          <div class="setup-section">
+            <h2>Hard drive</h2>
+            <p class="setup-row">
+              <label title="An IDE hard drive on an A600-style port, which Kickstart 2.05 and 3.1 have a driver for">
+                <input type="checkbox" name="hard-drive" /> IDE hard drive (DH0)
+              </label>
+              <span class="hd-status"></span>
+            </p>
+            <p class="setup-row hd-actions">
+              <select name="hd-size" aria-label="Size of a new hard disk">
+                <option value="20">20 MB</option>
+                <option value="40" selected>40 MB</option>
+                <option value="100">100 MB</option>
+                <option value="250">250 MB</option>
+              </select>
+              <button type="button" data-action="new-hard-disk">New hard disk</button>
+              <button type="button" data-action="import-hard-disk">Import .hdf...</button>
+              <button type="button" data-action="export-hard-disk">Export .hdf</button>
+              <button type="button" data-action="delete-hard-disk">Delete</button>
+            </p>
+            <p class="hd-note"></p>
+            <input type="file" name="hdf-file" accept=".hdf" hidden />
+          </div>
           <div class="rom-actions">
             <button type="button" class="primary" data-action="choose-roms">Choose ROM files...</button>
             <button type="button" data-action="start" disabled>Start the Amiga</button>
@@ -66,21 +110,9 @@
           <button type="button" data-action="reset" title="Ctrl-Amiga-Amiga: restart, keeping the disks in">Reset</button>
           <button type="button" data-action="power" title="Switch the Amiga off and on again">Power cycle</button>
           <button type="button" data-action="fullscreen" title="Esc leaves full screen">Full screen</button>
-          <button type="button" data-action="change-roms" title="Change or forget the Kickstart ROM">System ROMs...</button>
-        </span>
-        <span class="toolbar-group">
-          <select name="tv" aria-label="TV standard" title="Changing this switches the Amiga off and on">
-            <option value="pal" selected>PAL (50 Hz)</option>
-            <option value="ntsc">NTSC (60 Hz)</option>
-          </select>
-          <select name="memory" aria-label="Memory" title="Changing this switches the Amiga off and on">
-            <option value="512+512" selected>512K chip + 512K slow</option>
-            <option value="512">512K chip only</option>
-            <option value="1024">1MB chip</option>
-          </select>
-          <label class="toolbar-check" title="An external drive as DF1; changing this switches the Amiga off and on">
-            <input type="checkbox" name="external-drive" /> DF1
-          </label>
+          <button type="button" data-action="machine-setup" title="Kickstart, memory, TV standard, drives and the hard disk">
+            Machine setup...
+          </button>
         </span>
         <span class="toolbar-group">
           <button type="button" data-action="save-state" title="Save the whole Amiga, disks included, to come back to later">
@@ -122,6 +154,13 @@
             <button type="button" data-action="revert" hidden title="Forget what games saved to this disk">Revert</button>
             <button type="button" data-action="download" title="The disk as it is now, saved games included">Download .adf</button>
           </span>
+        </div>
+        <div class="drive" data-drive="hd" data-state="empty" hidden>
+          <span class="drive-led" title="Hard drive activity"></span>
+          <strong class="drive-label">DH0:</strong>
+          <span class="disk-name">No hard disk</span>
+          <span class="disk-detail"></span>
+          <span class="drive-actions hd-hint">Machine setup... has its options</span>
         </div>
         <p class="disk-hint">
           Drop .adf, .adz or .zip files anywhere on the page to put them in DF0 (onto DF1 for DF1). Several at once, such as

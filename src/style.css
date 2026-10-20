@@ -254,6 +254,55 @@ body.needs-roms .controls {
   font-size: 0.85rem;
 }
 
+.setup-section {
+  margin-top: 1rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #3d3d3d;
+  border-radius: 6px;
+  background: #202020;
+}
+
+.setup-section h2 {
+  margin: 0 0 0.5rem;
+  color: #eee;
+  font-size: 1rem;
+}
+
+.setup-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-top: 0.4rem !important;
+}
+
+.setup-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #ddd;
+}
+
+.hd-actions {
+  gap: 0.4rem;
+}
+
+.hd-status {
+  color: #9ad284;
+  font-size: 0.85rem;
+}
+
+.hd-note:not(:empty) {
+  margin-top: 0.5rem !important;
+  color: #c9a227;
+  font-size: 0.85rem;
+}
+
+.hd-hint {
+  color: #777;
+  font-size: 0.8rem;
+}
+
 .rom-choice label {
   display: inline-flex;
   align-items: center;

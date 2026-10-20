@@ -48,6 +48,17 @@ function preferenceRank(rom: Kickstart): number {
   return PREFERRED_ROMS.length + (rom.warning ? 1 : 0);
 }
 
+const IDE_DRIVER = [...'scsi.device'].map((char) => char.charCodeAt(0));
+
+/** Whether a Kickstart has the A600's IDE driver (scsi.device), as 2.05 and 3.1 do; 1.x and the A500+'s 2.04 don't. */
+export function hasIdeDriver(rom: Uint8Array): boolean {
+  outer: for (let i = 0; i <= rom.length - IDE_DRIVER.length; i++) {
+    for (let j = 0; j < IDE_DRIVER.length; j++) if (rom[i + j] !== IDE_DRIVER[j]) continue outer;
+    return true;
+  }
+  return false;
+}
+
 /**
  * Several Kickstarts (a ROM collection's) best first, each ROM once. Collections also hold
  * betas, hacks and ROMs for other models; when Commodore's own A500 ROMs are among them, only those count.

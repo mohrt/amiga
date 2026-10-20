@@ -30,7 +30,12 @@ export class MemoryStore<T> implements KeyValueStore<T> {
 const SAVES_DATABASE = { name: 'amiga-emulator', stores: ['diskSaves', 'saveDisks', 'saveStates'] } as const;
 /** The user's ROMs, in their own database so the ROMs and the saves can change apart. */
 const ROMS_DATABASE = { name: 'amiga-system-roms', stores: ['systemRoms'] } as const;
-export type StoreName = (typeof SAVES_DATABASE.stores)[number] | (typeof ROMS_DATABASE.stores)[number];
+/** The hard disk, in its own database: it can run to hundreds of megabytes. */
+const HARD_DISK_DATABASE = { name: 'amiga-hard-disk', stores: ['hardDisk'] } as const;
+export type StoreName =
+  | (typeof SAVES_DATABASE.stores)[number]
+  | (typeof ROMS_DATABASE.stores)[number]
+  | (typeof HARD_DISK_DATABASE.stores)[number];
 
 /** How long opening storage may take before the page says it's waiting. */
 const SLOW_OPEN_MS = 3000;
@@ -108,7 +113,7 @@ export async function openBrowserStores(onSlow?: () => void): Promise<Record<Sto
   const slowTimer = setTimeout(() => onSlow?.(), SLOW_OPEN_MS);
   try {
     const stores = {} as Record<StoreName, KeyValueStore<unknown>>;
-    for (const { name, stores: storeNames } of [SAVES_DATABASE, ROMS_DATABASE]) {
+    for (const { name, stores: storeNames } of [SAVES_DATABASE, ROMS_DATABASE, HARD_DISK_DATABASE]) {
       const db = await openDatabase(name, storeNames);
       for (const store of storeNames) stores[store] = new IndexedDbStore(db, store);
     }
@@ -125,5 +130,6 @@ export function memoryStores(): Record<StoreName, KeyValueStore<unknown>> {
     saveDisks: new MemoryStore(),
     saveStates: new MemoryStore(),
     systemRoms: new MemoryStore(),
+    hardDisk: new MemoryStore(),
   };
 }

@@ -5,6 +5,8 @@ import { Int, Reg } from './custom/registers';
 import { Denise } from './denise/denise';
 import type { FloppyDisk } from './drive/adf';
 import { FloppyDrive } from './drive/floppy';
+import { Gayle } from './ide/gayle';
+import type { HardDiskImage } from './ide/image';
 import { AmigaKeyboard } from './io/keyboard';
 import { ControlPorts } from './io/ports';
 import { AmigaBus } from './memory/bus';
@@ -41,6 +43,8 @@ export class Amiga {
   readonly rom = new Uint8Array(ROM_SPACE);
   /** A ROM at $E00000 (AROS has one). */
   extendedRom: Uint8Array | null = null;
+  /** The A600-style IDE port and its drive, when a hard disk is attached. */
+  gayle: Gayle | null = null;
   readonly denise = new Denise();
   readonly drives = [new FloppyDrive(true), new FloppyDrive(false), new FloppyDrive(false), new FloppyDrive(false)];
   readonly ports = new ControlPorts();
@@ -75,6 +79,7 @@ export class Amiga {
       onLine: () => {
         this.ciaB.countEvent();
         this.keyboard.tick();
+        this.gayle?.tick();
       },
       onFrame: () => {
         this.ciaA.countEvent();
@@ -183,6 +188,11 @@ export class Amiga {
     if (!connected) this.drives[1].eject();
   }
 
+  /** Attaches a hard disk on an A600-style IDE port (null takes it away); Kickstart looks for it at power on. */
+  attachHardDisk(image: HardDiskImage | null): void {
+    this.gayle = image ? new Gayle(image, () => this.paula.raise(Int.PORTS)) : null;
+  }
+
   insertDisk(drive: number, disk: FloppyDisk | null): void {
     if (disk) this.drives[drive].insert(disk);
     else this.drives[drive].eject();
@@ -217,6 +227,7 @@ export class Amiga {
     this.denise.reset();
     this.paula.reset();
     this.agnus.reset();
+    this.gayle?.reset();
     this.eClock = CCKS_PER_E_TICK;
   }
 

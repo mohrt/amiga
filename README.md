@@ -11,6 +11,7 @@ A Commodore Amiga 500 emulator written from scratch in TypeScript. It has:
 - **Denise:** lores and hires, up to six bitplanes scrolled per playfield, dual playfield, hold-and-modify and extra half-brite, eight sprites (attached in pairs for 15 colours), collisions and interlace.
 - **Paula:** four sound channels with modulation and the A500's two filters, the interrupt controller, and the disk controller.
 - **Everything else:** two 8520 CIAs, the keyboard, a mouse and joysticks, and the internal drive DF0 with an optional external DF1.
+- **A hard drive:** an IDE drive on an A600-style Gayle port, which Kickstart 3.1's own driver uses.
 
 Drop an `.adf`, `.adz` or `.zip` onto the page to put it in a drive. PAL and NTSC machines are both available.
 
@@ -24,13 +25,27 @@ Drop an `.adf`, `.adz` or `.zip` onto the page to put it in a drive. PAL and NTS
 
 ## The machine
 
-The toolbar has pause, reset (Ctrl-Amiga-Amiga), power cycle and full screen, plus the machine's setup:
+The toolbar has pause, reset (Ctrl-Amiga-Amiga), power cycle and full screen. **Machine setup...** opens the setup panel over the screen:
 
+- **Kickstart:** the ROM (see below).
 - **TV:** PAL (50 Hz) or NTSC (60 Hz).
 - **Memory:** 512K chip RAM plus the 512K "slow" RAM of the trapdoor expansion (the most compatible), 512K only, or 1MB of chip RAM.
 - **DF1:** an external second drive.
+- **Hard drive:** DH0, with **New hard disk** (20 to 250 MB), **Import .hdf...**, **Export .hdf** and **Delete**.
 
-Changing the setup switches the Amiga off and on. Save states keep the whole machine, disks included, in the browser, and can be exported and imported as `.amigastate` files. A state only loads with the Kickstart it was saved with.
+Nothing changes until **Restart the Amiga with these settings**, which switches it off and on. Save states keep the whole machine, floppy disks included, in the browser, and can be exported and imported as `.amigastate` files. A state only loads with the Kickstart it was saved with. The hard disk's contents aren't part of a save state, so loading an old state doesn't undo what was written to it.
+
+## Hard drive
+
+The drive is an IDE one, as on an A600. Kickstart 3.1 (and the A600's 2.05) find it with their own `scsi.device`; 1.3 and 2.04 have no driver for it. The hard disk is kept in the browser (in 1 MB pieces, saving only the ones that changed), and shows under the screen as DH0 with its activity light. **Export .hdf** downloads it in the format WinUAE and FS-UAE use, and their `.hdf` files can be imported if they were partitioned with HDToolBox (an image of a single partition won't mount).
+
+Installing Workbench 3.1 on it:
+
+1. In **Machine setup...**, use Kickstart 3.1, tick **IDE hard drive**, choose a size and press **New hard disk**, then restart.
+2. Boot the **Install** disk of Workbench 3.1. Open **HDTools**, then **HDToolBox**. It lists the drive as unknown: choose **Change Drive Type**, **Define New...** and **Read Configuration**, OK your way back, then press **Save Changes to Drive**. The partitions it suggests are fine, or change them in **Partition Drive** first.
+3. Restart. The new partitions appear on the Workbench as `DH0:NDOS`; select one, choose **Format Disk...** from the Icons menu, name it (System for DH0) and use **Quick Format**.
+4. From the Install disk, run **Install3.1** in the language you want and choose **Install Release 3.1** onto DH0 when it asks. Swap in the disks it asks for with the disk buttons (load all six Workbench disks at once).
+5. Take the floppy out and restart: the Amiga boots Workbench from the hard drive.
 
 ## ROMs
 
@@ -40,7 +55,7 @@ No ROM or game files are included in this repository.
   - The panel recognises Commodore's originals by checksum. It turns away ROMs made for later Amigas, such as those for the A1200, A3000, A4000 and CD32, which need a newer CPU.
   - It also accepts byte-swapped dumps, overdumps (a 256K ROM repeated twice), dumps of the two ROM chips, and Amiga Forever's encrypted ROMs together with their `rom.key`.
   - A whole ROM collection works too, even one with a zip for each ROM inside a zip. The panel uses the newest Kickstart for the A500 in it (3.1, then 2.05, 2.04, 1.3 and 1.2). Its **Use** menu switches to any of the others found, and they're kept for later visits too. Kickstart 1.3 runs the most A500 games.
-  - The ROM is kept in the browser's IndexedDB, with persistent storage requested, so later visits start straight away. **System ROMs...** in the toolbar changes or forgets it.
+  - The ROM is kept in the browser's IndexedDB, with persistent storage requested, so later visits start straight away. **Machine setup...** in the toolbar changes or forgets it.
 - **AROS:** the free replacement ROMs (AROS Public License) are downloaded by `npm run fetch:roms`. Only the tests use them.
 
 ## Disks

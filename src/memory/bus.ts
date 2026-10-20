@@ -1,5 +1,6 @@
 import type { Amiga } from '../amiga';
 import type { M68kBus } from '../cpu/m68k';
+import { Gayle } from '../ide/gayle';
 
 const CHIP_END = 0x200000;
 const SLOW_START = 0xc00000;
@@ -93,6 +94,7 @@ export class AmigaBus implements M68kBus {
       const a = address & 0x7fffe;
       return (amiga.extendedRom[a] << 8) | amiga.extendedRom[a + 1];
     }
+    if (amiga.gayle && Gayle.handles(address)) return amiga.gayle.read16(address);
     return 0;
   }
 
@@ -112,6 +114,7 @@ export class AmigaBus implements M68kBus {
       const word = this.ciaRead(address);
       return address & 1 ? word & 0xff : word >> 8;
     }
+    if (amiga.gayle && Gayle.handles(address)) return amiga.gayle.read8(address);
     const word = this.read16(address & ~1);
     return address & 1 ? word & 0xff : word >> 8;
   }
@@ -131,6 +134,8 @@ export class AmigaBus implements M68kBus {
       amiga.slow[a + 1] = value;
     } else if (address >= 0xa00000 && address < 0xc00000) {
       this.ciaWrite(address, value, false);
+    } else if (amiga.gayle && Gayle.handles(address)) {
+      amiga.gayle.write16(address, value);
     }
   }
 
@@ -148,6 +153,8 @@ export class AmigaBus implements M68kBus {
       amiga.slow[address - SLOW_START] = value;
     } else if (address >= 0xa00000 && address < 0xc00000) {
       this.ciaWrite(address, value, true);
+    } else if (amiga.gayle && Gayle.handles(address)) {
+      amiga.gayle.write8(address, value);
     }
   }
 

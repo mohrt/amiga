@@ -1,9 +1,13 @@
+import type { MemoryConfig, VideoStandard } from '../amiga';
 import { isZip, readZip } from '../drive/zip';
+import { HardDiskImage, isPartitionOnly } from '../ide/image';
+import type { HardDiskInfo } from '../storage/hard-disks';
 import {
   KICKSTART_256K,
   KICKSTART_512K,
   NeedsRomKey,
   identifyKickstart,
+  hasIdeDriver,
   joinSplitKickstart,
   looksLikeKickstart,
   preferredKickstart,
@@ -42,28 +46,75 @@ function summarise(errors: string[]): string {
   return errors.length > 3 ? `${shown} (and ${errors.length - 3} more files that aren't usable)` : shown;
 }
 
-export interface RomSetupOptions {
-  /** Opened from a running Amiga: offers Back (resolves null) and restarts rather than starts. */
-  whileRunning?: boolean;
+/** How the machine is built; changing any of it means switching off and on. */
+export interface MachineChoices {
+  standard: VideoStandard;
+  memory: MemoryConfig;
+  externalDrive: boolean;
+  hardDrive: boolean;
 }
 
+export const DEFAULT_CHOICES: MachineChoices = {
+  standard: 'pal',
+  memory: { chipKb: 512, slowKb: 512 },
+  externalDrive: false,
+  hardDrive: false,
+};
+
+/** What to do with the stored hard disk when the Amiga restarts. */
+export type HardDiskChange = { kind: 'keep' } | { kind: 'new'; image: HardDiskImage; name: string } | { kind: 'delete' };
+
+export interface MachineSetupOptions {
+  /** Opened from a running Amiga: offers Back (resolves null) and restarts rather than starts. */
+  whileRunning?: boolean;
+  choices: MachineChoices;
+  /** The hard disk kept in the browser, if there is one. */
+  hardDisk: HardDiskInfo | null;
+  /** Downloads the hard disk as it is now. */
+  exportHardDisk(): Promise<void>;
+}
+
+export interface MachineSetup {
+  kickstart: Kickstart;
+  choices: MachineChoices;
+  hardDisk: HardDiskChange;
+}
+
+export const MEMORY_CHOICES: Record<string, MemoryConfig> = {
+  '512+512': { chipKb: 512, slowKb: 512 },
+  '512': { chipKb: 512, slowKb: 0 },
+  '1024': { chipKb: 1024, slowKb: 0 },
+};
+
+const memoryValue = (memory: MemoryConfig) =>
+  Object.entries(MEMORY_CHOICES).find(([, config]) => config.chipKb === memory.chipKb && config.slowKb === memory.slowKb)?.[0] ?? '512+512';
+
+const megabytes = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`;
+
 /**
- * Shows the ROM setup panel in place of the screen until a Kickstart is
- * loaded and the user presses Start. Resolves with the Kickstart to use, or
- * null if the user went back to the running Amiga instead.
+ * Shows the Machine setup panel in place of the screen: the Kickstart (asked
+ * for on the first visit), the TV standard, memory and external drive, and
+ * the hard drive with its disk. Resolves when the user starts or restarts the
+ * Amiga, or with null if they went back to the running Amiga instead (which
+ * changes nothing but the Kickstart kept in the browser).
  */
-export function askForKickstart(
-  root: HTMLElement,
-  store: SystemRomStore,
-  initial: Kickstart | null,
-  options: RomSetupOptions = {},
-): Promise<Kickstart | null> {
+export function askForMachine(root: HTMLElement, store: SystemRomStore, initial: Kickstart | null, options: MachineSetupOptions): Promise<MachineSetup | null> {
   const query = <T extends HTMLElement>(selector: string) => {
     const element = root.querySelector<T>(selector);
     if (!element) throw new Error(`ROM setup is missing ${selector}`);
     return element;
   };
-  const fileInput = query<HTMLInputElement>('input[type="file"]');
+  const fileInput = query<HTMLInputElement>('input[name="rom-files"]');
+  const standardSelect = query<HTMLSelectElement>('select[name="tv"]');
+  const memorySelect = query<HTMLSelectElement>('select[name="memory"]');
+  const externalDrive = query<HTMLInputElement>('input[name="external-drive"]');
+  const hardDrive = query<HTMLInputElement>('input[name="hard-drive"]');
+  const hdStatus = query<HTMLElement>('.hd-status');
+  const hdNote = query<HTMLElement>('.hd-note');
+  const hdSize = query<HTMLSelectElement>('select[name="hd-size"]');
+  const hdFile = query<HTMLInputElement>('input[name="hdf-file"]');
+  const exportButton = query<HTMLButtonElement>('[data-action="export-hard-disk"]');
+  const deleteButton = query<HTMLButtonElement>('[data-action="delete-hard-disk"]');
   const startButton = query<HTMLButtonElement>('[data-action="start"]');
   const backButton = query<HTMLButtonElement>('[data-action="back"]');
   const forgetButton = query<HTMLButtonElement>('[data-action="forget-roms"]');
@@ -74,8 +125,14 @@ export function askForKickstart(
   const keyRow = query<HTMLElement>('[data-rom="key"]');
   const choiceRow = query<HTMLElement>('.rom-choice');
   const choiceSelect = query<HTMLSelectElement>('select[name="kickstart-choice"]');
-  heading.textContent = options.whileRunning ? 'Change the Kickstart ROM' : 'First, load a Kickstart ROM';
-  startButton.textContent = options.whileRunning ? 'Restart the Amiga with this ROM' : 'Start the Amiga';
+  heading.textContent = options.whileRunning ? 'Machine setup' : 'First, load a Kickstart ROM';
+  startButton.textContent = options.whileRunning ? 'Restart the Amiga with these settings' : 'Start the Amiga';
+  standardSelect.value = options.choices.standard;
+  memorySelect.value = memoryValue(options.choices.memory);
+  externalDrive.checked = options.choices.externalDrive;
+  hardDrive.checked = options.choices.hardDrive;
+  let hardDiskChange: HardDiskChange = { kind: 'keep' };
+  let hdWarning = '';
   backButton.hidden = !options.whileRunning;
   message.textContent = '';
   let kickstart = initial;
@@ -97,6 +154,7 @@ export function askForKickstart(
     startButton.disabled = !kickstart;
     forgetButton.hidden = !kickstart;
     choiceRow.hidden = choices.length < 2;
+    renderHardDisk();
     choiceSelect.replaceChildren(
       ...choices.map((choice, i) => {
         const option = document.createElement('option');
@@ -108,15 +166,55 @@ export function askForKickstart(
     );
   };
 
+  const whenStarted = options.whileRunning ? 'when the Amiga restarts' : 'when the Amiga starts';
+  const renderHardDisk = () => {
+    const stored = options.hardDisk;
+    const disk =
+      hardDiskChange.kind === 'new'
+        ? `${hardDiskChange.name}, ${megabytes(hardDiskChange.image.bytes.length)} (made ${whenStarted})`
+        : hardDiskChange.kind === 'delete' || !stored
+          ? null
+          : `${stored.name}, ${megabytes(stored.bytes)}`;
+    hdStatus.textContent = disk ?? (hardDiskChange.kind === 'delete' ? `Deleted ${whenStarted}` : 'No hard disk yet');
+    exportButton.disabled = hardDiskChange.kind !== 'keep' || !stored;
+    deleteButton.disabled = !disk;
+    const notes = [hdWarning];
+    if (hardDrive.checked && !disk) notes.push('Make a new hard disk or import one, or the drive stays empty.');
+    if (hardDrive.checked && kickstart && !hasIdeDriver(kickstart.data)) {
+      notes.push(`${kickstart.title} has no driver for this drive; it needs Kickstart 3.1 or the A600's 2.05.`);
+    }
+    hdNote.textContent = notes.filter(Boolean).join(' ');
+  };
+
+  const useHardDisk = (image: HardDiskImage, name: string) => {
+    if (options.hardDisk && hardDiskChange.kind === 'keep' && !confirm('Replace the hard disk kept in this browser? What is on it will be lost.')) return;
+    hardDiskChange = { kind: 'new', image, name };
+    hardDrive.checked = true;
+    render();
+  };
+
+  const importHardDisk = async (file: File) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const image = HardDiskImage.fromHdf(bytes);
+    hdWarning = isPartitionOnly(bytes)
+      ? `${file.name} holds only a partition (no Rigid Disk Block), which Kickstart won't mount; use an image partitioned with HDToolBox.`
+      : '';
+    useHardDisk(image, file.name.replace(/\.hdf$/i, ''));
+  };
+
   const use = async (rom: Kickstart) => {
     kickstart = rom;
     encrypted = null;
     await store.save(rom);
   };
 
-  const addFiles = async (chosen: File[]) => {
+  const addFiles = async (all: File[]) => {
     const errors: string[] = [];
     const files: File[] = [];
+    // A hard disk image dropped on the panel goes to the hard drive.
+    const hardDiskFile = all.find((file) => /\.hdf$/i.test(file.name));
+    if (hardDiskFile) await importHardDisk(hardDiskFile).catch((error: unknown) => errors.push(error instanceof Error ? error.message : String(error)));
+    const chosen = all.filter((file) => file !== hardDiskFile);
     for (const file of chosen) {
       try {
         files.push(...(await expand(file)));
@@ -182,6 +280,41 @@ export function askForKickstart(
     choices = stored;
     render();
   });
+
+  hardDrive.addEventListener('change', render, { signal: listeners.signal });
+  query<HTMLButtonElement>('[data-action="new-hard-disk"]').addEventListener(
+    'click',
+    () => {
+      hdWarning = '';
+      useHardDisk(HardDiskImage.blank(Number(hdSize.value)), `Hard disk`);
+    },
+    { signal: listeners.signal },
+  );
+  query<HTMLButtonElement>('[data-action="import-hard-disk"]').addEventListener('click', () => hdFile.click(), { signal: listeners.signal });
+  hdFile.addEventListener(
+    'change',
+    () => {
+      const file = hdFile.files?.[0];
+      hdFile.value = '';
+      if (file) {
+        void importHardDisk(file).catch((error: unknown) => {
+          message.textContent = error instanceof Error ? error.message : String(error);
+        });
+      }
+    },
+    { signal: listeners.signal },
+  );
+  exportButton.addEventListener('click', () => void options.exportHardDisk(), { signal: listeners.signal });
+  deleteButton.addEventListener(
+    'click',
+    () => {
+      if (hardDiskChange.kind === 'new') hardDiskChange = { kind: 'keep' };
+      else if (confirm('Delete the hard disk kept in this browser? What is on it will be lost.')) hardDiskChange = { kind: 'delete' };
+      hdWarning = '';
+      render();
+    },
+    { signal: listeners.signal },
+  );
 
   root.querySelectorAll<HTMLButtonElement>('[data-action="choose-roms"]').forEach((button) =>
     button.addEventListener('click', () => fileInput.click(), { signal: listeners.signal }),
@@ -261,13 +394,25 @@ export function askForKickstart(
   root.scrollIntoView({ block: 'start' });
 
   return new Promise((resolve) => {
-    const close = (result: Kickstart | null) => {
+    const close = (result: MachineSetup | null) => {
       listeners.abort();
       root.hidden = true;
       document.body.classList.remove('needs-roms');
       resolve(result);
     };
-    startButton.addEventListener('click', () => close(kickstart), { signal: listeners.signal });
+    const choices = (): MachineChoices => ({
+      standard: standardSelect.value === 'ntsc' ? 'ntsc' : 'pal',
+      memory: MEMORY_CHOICES[memorySelect.value] ?? MEMORY_CHOICES['512+512'],
+      externalDrive: externalDrive.checked,
+      hardDrive: hardDrive.checked,
+    });
+    startButton.addEventListener(
+      'click',
+      () => {
+        if (kickstart) close({ kickstart, choices: choices(), hardDisk: hardDiskChange });
+      },
+      { signal: listeners.signal },
+    );
     backButton.addEventListener('click', () => close(null), { signal: listeners.signal });
   });
 }

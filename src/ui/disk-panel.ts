@@ -223,6 +223,19 @@ export class DiskPanel {
     this.drives[drive].classList.toggle('active', on);
   }
 
+  /** The DH0 row: shown while the hard drive is on, with the disk's name and size (or none). */
+  showHardDisk(connected: boolean, name: string | null, size: string): void {
+    const row = requireChild<HTMLElement>(this.root, '[data-drive="hd"]');
+    row.hidden = !connected;
+    row.dataset.state = name ? 'loaded' : 'empty';
+    requireChild(row, '.disk-name').textContent = name ?? 'No hard disk';
+    requireChild(row, '.disk-detail').textContent = size;
+  }
+
+  setHardDiskLed(on: boolean): void {
+    requireChild(this.root, '[data-drive="hd"]').classList.toggle('active', on);
+  }
+
   /** Buttons for the disks given together (a zip's, or several files), for swapping disks during a game. */
   setZipFiles(files: File[], current: string | null): void {
     this.zipChoices = files;
