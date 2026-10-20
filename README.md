@@ -45,7 +45,7 @@ No ROM or game files are included in this repository.
 
 ## Disks
 
-`.adf` disk images go in as they are. `.adz` (gzipped) and `.zip` work too; the other disks of a zip get buttons, for swapping disks during a game. Extended ADFs (`UAE-1ADF`) with raw MFM tracks, as copy-protected disks need, also work. DMS and IPF images aren't supported; unpack DMS archives to `.adf` first.
+`.adf` disk images go in as they are. `.adz` (gzipped) and `.zip` work too. Several files dropped or chosen at once, or a zip holding several disks, give a button for each disk for swapping disks during a game. With DF1 on, the buttons can fill either drive. The first disk by name goes in first, or the Workbench disk of a Workbench set, since a set's first disk is often its installer. Extended ADFs (`UAE-1ADF`) with raw MFM tracks, as copy-protected disks need, also work. DMS and IPF images aren't supported; unpack DMS archives to `.adf` first.
 
 Your disk images are never changed. What games write to a disk is kept in the browser (only the sectors that changed) and put back whenever that image is inserted again. **Revert** forgets it, and **Download .adf** gives you the disk as it is now. **New blank disk** makes an empty disk for games that want a save disk of their own. Format it from the game or from Workbench.
 

@@ -40,3 +40,11 @@ export async function readMedia(file: File): Promise<Media> {
 export function titleFromFileName(name: string): string {
   return name.replace(/\.(adf|adz|zip)$/i, '').trim() || name;
 }
+
+/**
+ * The disk to put in first from several: the Workbench disk of a Workbench set (whose first
+ * disk is often its installer), otherwise the first by name ("Disk 1").
+ */
+export function firstDisk(files: File[]): File {
+  return files.find((file) => /\(workbench\)/i.test(file.name)) ?? files[0];
+}

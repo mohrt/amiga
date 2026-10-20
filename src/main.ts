@@ -1,7 +1,7 @@
 import type { MemoryConfig } from './amiga';
 import { AudioOutput } from './audio/audio-output';
 import { FloppyDisk } from './drive/adf';
-import { STATE_EXTENSION, filesFrom, readMedia, titleFromFileName } from './drive/load';
+import { STATE_EXTENSION, filesFrom, firstDisk, readMedia, titleFromFileName } from './drive/load';
 import { Emulator } from './emulator';
 import { fetchGame, loadGameManifest, type BundledGame } from './games';
 import { BrowserInput, type KeySetName } from './io/browser-input';
@@ -225,25 +225,33 @@ async function main(): Promise<void> {
 
     // --- Panels ----------------------------------------------------------------------
     let bundledGames: BundledGame[] = [];
-    const openFile = async (file: File, drive: number) => {
-      const files = await filesFrom(file);
-      const fromZip = files[0] !== file;
-      const chosen = files[0];
-      if (fromZip) diskPanel.setZipFiles(files, chosen.name);
-      else if (diskPanel.zipContents.includes(file)) diskPanel.setZipFiles(diskPanel.zipContents, file.name);
-      else diskPanel.setZipFiles([], null);
-      const media = await readMedia(chosen);
+    /** Puts one disk image in a drive, or loads a save state. */
+    const openDisk = async (file: File, drive: number) => {
+      const media = await readMedia(file);
       if (media.kind === 'state') {
         await restoreSession(await decodeSession(media.bytes));
         toolbar.showMessage('Save state loaded');
         return;
       }
-      const game = bundledGames.find((entry) => entry.file.split('/').pop() === chosen.name);
-      await insertDisk(drive, media.disk, game?.title ?? titleFromFileName(chosen.name));
+      const game = bundledGames.find((entry) => entry.file.split('/').pop() === file.name);
+      await insertDisk(drive, media.disk, game?.title ?? titleFromFileName(file.name));
+    };
+
+    /** Files dropped or chosen together: every disk in them gets a button, and the first goes in. */
+    const openFiles = async (chosen: File[], drive: number) => {
+      const files = (await Promise.all(chosen.map((file) => filesFrom(file)))).flat();
+      if (chosen.length > 1) files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      const first = firstDisk(files);
+      diskPanel.setZipFiles(files.length > 1 ? files : [], first.name);
+      await openDisk(first, drive);
     };
 
     const diskPanel = new DiskPanel(requireElement('#disk-panel'), {
-      onFile: openFile,
+      onFiles: openFiles,
+      onSwapDisk: async (file, drive) => {
+        diskPanel.setZipFiles(diskPanel.zipContents, file.name);
+        await openDisk(file, drive);
+      },
       onEject: eject,
       onRevert: async (drive) => {
         const disk = await diskSaves.revert(drive);
@@ -259,7 +267,7 @@ async function main(): Promise<void> {
       },
       onGame: (index) => fetchGame(import.meta.env.BASE_URL, bundledGames[index]),
       onPlayGame: async (file) => {
-        await openFile(file, 0);
+        await openFiles([file], 0);
         amiga.reset();
         emulator.resetTiming();
         audio?.flush();

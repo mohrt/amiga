@@ -13,8 +13,10 @@ export interface SaveDiskOption {
 }
 
 export interface DiskPanelCallbacks {
-  /** A file was dropped or chosen for a drive (a disk image, a zip, or a save state). */
-  onFile(file: File, drive: number): Promise<void>;
+  /** Files were dropped or chosen for a drive (disk images, zips of them, or a save state). */
+  onFiles(files: File[], drive: number): Promise<void>;
+  /** One of the disks given earlier (a disk button) goes in a drive. */
+  onSwapDisk(file: File, drive: number): Promise<void>;
   onEject(drive: number): void;
   /** Forgets what games saved to the disk in the drive. */
   onRevert(drive: number): Promise<void>;
@@ -30,6 +32,29 @@ export interface DiskPanelCallbacks {
   onDeleteSaveDisk(id: string): Promise<void>;
   onWarp(enabled: boolean): void;
   focusScreen(): void;
+}
+
+/**
+ * Names for the disk buttons: what differs between the files' names, so
+ * "Workbench v3.1 rev 40.42 (1996)(ESCOM)(M10)(Disk 2 of 6)(Workbench).adf"
+ * among its set shows as "Disk 2 of 6 (Workbench)".
+ */
+export function shortLabels(names: string[]): string[] {
+  const bare = names.map((name) => name.replace(/\.(adf|adz)$/i, ''));
+  if (bare.length < 2) return bare;
+  let common = bare.reduce((prefix, name) => {
+    let i = 0;
+    while (i < prefix.length && prefix[i] === name[i]) i++;
+    return prefix.slice(0, i);
+  });
+  // Cut back to a bracket (or else a word), so "(Disk 1 of 6)" doesn't lose its "Disk".
+  const bracket = common.lastIndexOf('(');
+  const boundary = bracket >= 0 ? bracket : Math.max(common.lastIndexOf(' '), common.lastIndexOf('_'), common.lastIndexOf('-'));
+  common = boundary >= 0 ? common.slice(0, boundary + 1) : '';
+  return bare.map((name) => {
+    const rest = name.slice(common.length).replace(/^[(\s_-]+/, '').replace(/\)\(/g, ' (').replace(/^([^(]*)\)/, '$1').trim();
+    return rest || name;
+  });
 }
 
 function requireChild<T extends Element>(root: Element, selector: string): T {
@@ -49,6 +74,7 @@ export class DiskPanel {
   private readonly message: HTMLElement;
   private readonly zipFiles: HTMLElement;
   private readonly zipButtons: HTMLElement;
+  private readonly zipDrive: HTMLSelectElement;
   private readonly gamePicker: HTMLSelectElement;
   private readonly gameInfo: HTMLElement;
   private readonly saveDiskSelect: HTMLSelectElement;
@@ -66,6 +92,7 @@ export class DiskPanel {
     this.message = requireChild(root, '.disk-message');
     this.zipFiles = requireChild(root, '.zip-files');
     this.zipButtons = requireChild(root, '.zip-buttons');
+    this.zipDrive = requireChild(root, 'select[name="zip-drive"]');
     this.gamePicker = requireChild(root, 'select[name="bundled-game"]');
     this.gameInfo = requireChild(root, '.game-info');
     this.saveDiskSelect = requireChild(root, 'select[name="save-disk"]');
@@ -87,9 +114,9 @@ export class DiskPanel {
       button('download').addEventListener('click', () => this.run(() => this.callbacks.onDownload(drive)));
     });
     this.fileInput.addEventListener('change', () => {
-      const file = this.fileInput.files?.[0];
+      const files = [...(this.fileInput.files ?? [])];
       this.fileInput.value = '';
-      if (file) this.run(() => this.callbacks.onFile(file, this.pickingFor));
+      if (files.length) this.run(() => this.callbacks.onFiles(files, this.pickingFor));
     });
 
     this.gamePicker.addEventListener('change', () => this.showGameInfo());
@@ -144,8 +171,8 @@ export class DiskPanel {
       depth = 0;
       this.root.classList.remove('drag-over');
       const onDf1 = !this.drives[1].hidden && event.target instanceof Node && this.drives[1].contains(event.target);
-      const file = event.dataTransfer?.files[0];
-      if (file) this.run(() => this.callbacks.onFile(file, onDf1 ? 1 : 0));
+      const files = [...(event.dataTransfer?.files ?? [])];
+      if (files.length) this.run(() => this.callbacks.onFiles(files, onDf1 ? 1 : 0));
     });
   }
 
@@ -188,23 +215,27 @@ export class DiskPanel {
   setDriveConnected(drive: number, connected: boolean): void {
     this.drives[drive].hidden = !connected;
     requireChild<HTMLSelectElement>(this.root, 'select[name="save-disk-drive"]').hidden = !connected;
+    this.zipDrive.hidden = !connected;
+    if (!connected) this.zipDrive.value = '0';
   }
 
   setLed(drive: number, on: boolean): void {
     this.drives[drive].classList.toggle('active', on);
   }
 
-  /** Buttons for the disks of a zip, which go into DF0 (for swapping disks during a game). */
+  /** Buttons for the disks given together (a zip's, or several files), for swapping disks during a game. */
   setZipFiles(files: File[], current: string | null): void {
     this.zipChoices = files;
     this.zipFiles.hidden = files.length < 2;
+    const labels = shortLabels(files.map((file) => file.name));
     this.zipButtons.replaceChildren(
-      ...files.map((file) => {
+      ...files.map((file, i) => {
         const button = document.createElement('button');
         button.type = 'button';
-        button.textContent = file.name;
+        button.textContent = labels[i];
+        button.title = file.name;
         button.classList.toggle('current', file.name === current);
-        button.addEventListener('click', () => this.run(() => this.callbacks.onFile(file, 0)));
+        button.addEventListener('click', () => this.run(() => this.callbacks.onSwapDisk(file, Number(this.zipDrive.value) || 0)));
         return button;
       }),
     );
