@@ -9,7 +9,6 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "fetch:roms": "node scripts/fetch-roms.mjs",
     "fetch:m68k": "node scripts/fetch-m68k-tests.mjs",
     "fetch:hw-tests": "node scripts/fetch-hw-tests.mjs",
     "fetch:games": "node scripts/fetch-games.mjs"

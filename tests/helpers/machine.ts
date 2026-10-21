@@ -7,7 +7,7 @@ import { framePng } from './png';
 export const root = join(import.meta.dirname, '..', '..');
 /** Your own Kickstarts, for the tests only (never committed). */
 export const localRoms = join(root, 'roms');
-/** The free AROS ROMs, from `npm run fetch:roms`. */
+/** The free AROS ROMs (AROS Public License), committed for the tests. */
 export const arosDir = join(root, 'tests', 'fixtures', 'aros');
 
 export function localKickstart(name: string): Uint8Array | null {

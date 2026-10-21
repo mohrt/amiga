@@ -1,0 +1,9 @@
+aros-rom.bin and aros-ext.bin are the AROS replacement Kickstart ROMs for the Amiga (m68k build),
+used by the tests only. They are distributed under the AROS Public License:
+https://aros.sourceforge.io/license.html
+
+AROS source code: https://github.com/aros-development-team/AROS
+
+SHA-256:
+d2a6971f476be577ccc0530bbcca8805d8b88bf0d2c51e61086c40a5ab626df6  aros-rom.bin
+aadeec434309e8e76702d33c894758f58a63a2b588ee6f6d5329858f6e98d988  aros-ext.bin

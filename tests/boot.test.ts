@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { arosRoms, colourCount, localKickstart, machineWith, runSeconds, screenshot } from './helpers/machine';
 
-// The free AROS ROMs come from `npm run fetch:roms`.
+// The free AROS ROMs are committed in tests/fixtures/aros/.
 describe('booting AROS', () => {
   const aros = arosRoms();
   it.skipIf(!aros)('reaches its boot screen', () => {
