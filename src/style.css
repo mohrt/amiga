@@ -369,6 +369,10 @@ body.needs-roms .controls {
   font-size: 0.85rem;
 }
 
+.rom-tip a {
+  color: var(--accent-soft);
+}
+
 .rom-actions {
   display: flex;
   flex-wrap: wrap;
