@@ -43,6 +43,28 @@
       "licenseFile": "https://raw.githubusercontent.com/asig/amimines/20bf4157e4fc48c43f3f3e594d44427997f96d64/LICENSE",
       "sourceUrl": "https://github.com/asig/amimines",
       "hint": "Minesweeper with the mouse: the left button uncovers a square, the right button marks a mine. Novice, Intermediate and Expert are at the top."
+    },
+    {
+      "title": "Chaos Arena",
+      "file": "chaos-arena.adf",
+      "url": "https://github.com/mohrt/amiga500/releases/download/free-games/chaos-arena.adf",
+      "sha256": "2f26bd2d66cda8a951ba122ad131b3c0f945253a5c8a88cb355fa455622d6a2c",
+      "credit": "Last Minute Creations (KaiN, Softiron, Luc3k)",
+      "license": "Mozilla Public License 2.0",
+      "licenseFile": "https://raw.githubusercontent.com/Last-Minute-Creations/chaosArena/b8845caccec95ce1b1b5fb29df69b8004c00905c/LICENSE",
+      "sourceUrl": "https://github.com/Last-Minute-Creations/chaosArena",
+      "hint": "Up to six players: joysticks in ports 1 and 2, the arrows with right Shift, and W A S D with left Shift. Switch players on in the menu, then Begin Chaos. It loads for about a minute; Fast loading shortens that."
+    },
+    {
+      "title": "GermZ",
+      "file": "germz.adf",
+      "url": "https://github.com/mohrt/amiga500/releases/download/free-games/germz.adf",
+      "sha256": "03d0b9dafbb8b873fb3c9d3f82990fe8dceed2c962273e1c7e87fa672a6b0871",
+      "credit": "Last Minute Creations (KaiN, Softiron, Luc3k)",
+      "license": "Mozilla Public License 2.0 (code), CC BY-SA 4.0 (art)",
+      "licenseFile": "https://raw.githubusercontent.com/Last-Minute-Creations/germz/f7325228e9e5f4b894a7192d21c6ae2fc80455c5/LICENSE",
+      "sourceUrl": "https://github.com/Last-Minute-Creations/germz",
+      "hint": "Needs 1MB chip RAM: choose it under Memory in Machine setup... first. One to four players: joysticks in ports 1 and 2, the arrows with right Shift, and W A S D with left Shift. It loads for over a minute; Fast loading shortens that."
     }
   ]
 }
