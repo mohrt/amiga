@@ -21,6 +21,28 @@
       "licenseFile": "https://raw.githubusercontent.com/kotbehemot53/amiga-space-invaders/7b7a0fdaedad01818050a2bbb0d9686b1a73dbf6/LICENSE",
       "sourceUrl": "https://github.com/kotbehemot53/amiga-space-invaders",
       "hint": "Joystick in port 2 (choose keys for it below): left, right and fire. The left mouse button quits."
+    },
+    {
+      "title": "Solid Gold",
+      "file": "solid-gold.adf",
+      "url": "https://aminet.net/game/jump/SolidGold.adf",
+      "sha256": "81a08c1a73be2a5bc8e06f351572d3203d520293054ba833031268d6e7ffe0a6",
+      "credit": "Frank Wille, Gerrit Wille and Pierre Horn (Night OWL Design)",
+      "license": "Freeware (source and data public domain)",
+      "licenseUrl": "https://aminet.net/game/jump/SolidGold.readme",
+      "sourceUrl": "https://aminet.net/package/game/jump/SolidGold_Source",
+      "hint": "Joystick in port 2 (choose keys for it below): left and right run, up jumps, and fire starts the game."
+    },
+    {
+      "title": "AmiMines",
+      "file": "amimines.adf",
+      "url": "https://raw.githubusercontent.com/asig/amimines/20bf4157e4fc48c43f3f3e594d44427997f96d64/AmiMines.adf",
+      "sha256": "a802b9c9fc8332fd1d8043a091082f5832132e03eecc352c0d96673e8c19cdfe",
+      "credit": "Andreas Signer",
+      "license": "GNU GPL v3",
+      "licenseFile": "https://raw.githubusercontent.com/asig/amimines/20bf4157e4fc48c43f3f3e594d44427997f96d64/LICENSE",
+      "sourceUrl": "https://github.com/asig/amimines",
+      "hint": "Minesweeper with the mouse: the left button uncovers a square, the right button marks a mine. Novice, Intermediate and Expert are at the top."
     }
   ]
 }
