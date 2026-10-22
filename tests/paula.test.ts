@@ -51,6 +51,24 @@ describe('Paula interrupts', () => {
     amiga.agnus.runTo(amiga.agnus.clock + 100);
     expect(amiga.paula.intreq & Int.EXTER).toBe(Int.EXTER);
   });
+
+  it("can't clear PORTS or EXTER while a CIA holds its interrupt line, until its ICR is read", () => {
+    const amiga = idleMachine();
+    amiga.writeCustom(0x09c, 0x7fff);
+    amiga.ciaA.write(0xd, 0x88);
+    amiga.ciaA.receiveSerial(0x55);
+    amiga.ciaB.write(0xd, 0x81);
+    amiga.ciaB.write(0x4, 10);
+    amiga.ciaB.write(0x5, 0);
+    amiga.ciaB.write(0xe, 0x01);
+    amiga.agnus.runTo(amiga.agnus.clock + 100);
+    amiga.writeCustom(0x09c, 0x7fff);
+    expect(amiga.paula.intreq & (Int.PORTS | Int.EXTER)).toBe(Int.PORTS | Int.EXTER);
+    amiga.ciaA.read(0xd);
+    amiga.ciaB.read(0xd);
+    amiga.writeCustom(0x09c, 0x7fff);
+    expect(amiga.paula.intreq & (Int.PORTS | Int.EXTER)).toBe(0);
+  });
 });
 
 describe('Paula sound', () => {

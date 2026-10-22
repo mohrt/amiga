@@ -15,6 +15,8 @@ export interface PaulaHost {
   indexPulse(): void;
   /** The CPU's interrupt level changed. */
   setInterruptLevel(level: number): void;
+  /** The INTREQ bits whose interrupt lines are held active from outside (the CIAs' IRQ outputs). */
+  heldInterrupts(): number;
 }
 
 /**
@@ -60,8 +62,9 @@ export class Paula {
     this.update();
   }
 
+  /** INT2 (PORTS) and INT6 (EXTER) are level inputs: their requests can't be cleared while a CIA still holds its IRQ line active. */
   writeIntreq(value: number): void {
-    this.intreq = setClear(this.intreq, value);
+    this.intreq = setClear(this.intreq, value) | this.host.heldInterrupts();
     this.update();
   }
 

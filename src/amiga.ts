@@ -73,6 +73,7 @@ export class Amiga {
       },
       indexPulse: () => this.ciaB.pulseFlag(),
       setInterruptLevel: (level) => (this.cpu.irqLevel = level),
+      heldInterrupts: () => (this.ciaA.interrupt ? Int.PORTS : 0) | (this.ciaB.interrupt ? Int.EXTER : 0),
     });
     this.agnus = new Agnus(this.chip, this.denise, {
       writeRegister: (reg, value) => this.writeCustom(reg, value),
