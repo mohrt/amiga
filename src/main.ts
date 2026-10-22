@@ -1,4 +1,5 @@
 import type { MemoryConfig } from './amiga';
+import { trackGameLoaded } from './analytics';
 import { AudioOutput } from './audio/audio-output';
 import { FloppyDisk } from './drive/adf';
 import { STATE_EXTENSION, filesFrom, firstDisk, readMedia, titleFromFileName } from './drive/load';
@@ -271,8 +272,8 @@ async function main(): Promise<void> {
 
     // --- Panels ----------------------------------------------------------------------
     let bundledGames: BundledGame[] = [];
-    /** Puts one disk image in a drive, or loads a save state. */
-    const openDisk = async (file: File, drive: number) => {
+    /** Puts one disk image in a drive, or loads a save state. Disk swaps aren't counted as new games. */
+    const openDisk = async (file: File, drive: number, newGame = false) => {
       const media = await readMedia(file);
       if (media.kind === 'state') {
         await restoreSession(await decodeSession(media.bytes));
@@ -282,6 +283,7 @@ async function main(): Promise<void> {
       const game = bundledGames.find((entry) => entry.file.split('/').pop() === file.name);
       await insertDisk(drive, media.disk, game?.title ?? titleFromFileName(file.name));
       diskPanel.markSetDisk(drive, file.name);
+      if (newGame) trackGameLoaded('amiga500', game?.title);
     };
 
     /** Files dropped or chosen together: every disk in them gets a button, and the first goes in. */
@@ -290,7 +292,7 @@ async function main(): Promise<void> {
       if (chosen.length > 1) files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
       const first = firstDisk(files);
       diskPanel.setZipFiles(files.length > 1 ? files : []);
-      await openDisk(first, drive);
+      await openDisk(first, drive, true);
     };
 
     const diskPanel = new DiskPanel(requireElement('#disk-panel'), {
