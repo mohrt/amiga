@@ -86,6 +86,8 @@ export class Amiga {
   readonly cpu = new M68k(this.bus);
   /** The ROM is mapped over chip RAM at $000000 (until CIA-A's OVL line goes low). */
   overlay = true;
+  /** On the CD32, CIA-A's PA0 is the overlay only until boot first turns it off; then it switches the CD audio. */
+  private cd32OverlayDone = false;
   /** The power light (also the audio filter's switch). */
   powerLed = false;
   private eClock = CCKS_PER_E_TICK;
@@ -177,9 +179,15 @@ export class Amiga {
 
   private ciaAOutputChanged(): void {
     const output = this.ciaA.portAOutput;
-    this.overlay = (output & 0x01) !== 0;
+    if (this.akiko && this.cd32OverlayDone) {
+      this.akiko.audioOn = (output & 0x01) !== 0;
+    } else {
+      this.overlay = (output & 0x01) !== 0;
+      if (this.akiko && !this.overlay) this.cd32OverlayDone = true;
+    }
     this.powerLed = (output & 0x02) === 0;
     this.paula.audio.ledFilter = this.powerLed;
+    this.ports.writePortA(output, this.ciaA.portADirection);
   }
 
   private tickChips(): void {
@@ -221,6 +229,8 @@ export class Amiga {
     if (this.gayle instanceof Gayle) this.gayle.aga = aga;
     this.scsi = model.scsi ? (this.scsi ?? new A3000Scsi(this.bus.dmaMemory)) : null;
     this.akiko = model.cd32 ? (this.akiko ?? new Akiko(this.bus.dmaMemory, () => this.agnus.frameLines)) : null;
+    this.paula.audio.extraSource = this.akiko;
+    this.ports.cd32Pad = !!model.cd32;
     // The CD32 has no floppy drive.
     this.drives[0].connected = !model.cd32;
   }
@@ -313,6 +323,7 @@ export class Amiga {
 
   /** The reset line: the CIAs and custom chips (the CPU's RESET instruction pulses it). */
   resetDevices(): void {
+    this.cd32OverlayDone = false;
     this.ciaA.reset();
     this.ciaB.reset();
     this.denise.reset();

@@ -72,8 +72,16 @@ class LowPass2 {
  * or period instead. Channels 0 and 3 are on the left, 1 and 2 on the right.
  * The output goes through the A500's filters and is resampled for the speakers.
  */
+/** Sound from outside Paula mixed into its output (the CD32's CD audio): adds a left and right sample to `out`. */
+export interface AudioSource {
+  mix(out: Float32Array, sampleRate: number): void;
+}
+
 export class PaulaAudio {
   readonly channels = [new Channel(), new Channel(), new Channel(), new Channel()];
+  /** Another source of sound, mixed in after Paula's filters. */
+  extraSource: AudioSource | null = null;
+  private readonly extra = new Float32Array(2);
   /** The power LED's filter (CIA-A's LED line low). */
   ledFilter = false;
   /** How far apart the left and right channels are, from 0 (mono) to 1 (the Amiga's hard stereo). */
@@ -252,13 +260,20 @@ export class PaulaAudio {
       this.ledRight.process(right);
     }
     const mix = (1 - this.separation) / 2;
+    let extraLeft = 0;
+    let extraRight = 0;
+    if (this.extraSource) {
+      this.extra.fill(0);
+      this.extraSource.mix(this.extra, this.sampleRate);
+      [extraLeft, extraRight] = this.extra;
+    }
     if (this.length + 2 > this.buffer.length) {
       const bigger = new Float32Array(this.buffer.length * 2);
       bigger.set(this.buffer);
       this.buffer = bigger;
     }
-    this.buffer[this.length++] = left * (1 - mix) + right * mix;
-    this.buffer[this.length++] = right * (1 - mix) + left * mix;
+    this.buffer[this.length++] = left * (1 - mix) + right * mix + extraLeft;
+    this.buffer[this.length++] = right * (1 - mix) + left * mix + extraRight;
   }
 
   /** The samples made since the last call (interleaved left and right). */

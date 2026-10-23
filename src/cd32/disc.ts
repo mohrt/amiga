@@ -67,11 +67,12 @@ export class CdImage implements CdDisc {
     const startOfFiles: { file: Uint8Array; discStart: number; tracks: Track[] }[] = [];
     for (const raw of sheet.split(/\r?\n/)) {
       const line = raw.trim();
-      const fileMatch = /^FILE\s+"?(.+?)"?\s+\w+$/i.exec(line);
+      const fileMatch = /^FILE\s+"?(.+?)"?\s+(\w+)$/i.exec(line);
       if (fileMatch) {
         const data = byName.get(baseName(fileMatch[1]).toLowerCase());
         if (!data) throw new Error(`The CUE sheet needs ${fileMatch[1]}; add it along with the .cue file.`);
-        file = data;
+        // A WAVE file's samples are its data chunk (16-bit stereo at 44.1 kHz, as on the CD).
+        file = fileMatch[2].toUpperCase() === 'WAVE' ? waveData(data) : data;
         fileStart = startOfFiles.length ? startOfFiles[startOfFiles.length - 1].discStart + fileSectors(startOfFiles[startOfFiles.length - 1]) : 0;
         startOfFiles.push({ file, discStart: fileStart, tracks: [] });
         continue;
@@ -162,4 +163,16 @@ function byteOffset(earlier: Track[], sectorInFile: number, sectorBytes: number)
   const previous = earlier[earlier.length - 1];
   const previousStartInFile = previous.offset / previous.sectorBytes;
   return previous.offset + (sectorInFile - previousStartInFile) * previous.sectorBytes;
+}
+
+/** The samples of a WAVE file: its data chunk, after the RIFF header and the other chunks. */
+function waveData(file: Uint8Array): Uint8Array {
+  const view = new DataView(file.buffer, file.byteOffset, file.byteLength);
+  if (file.length < 12 || String.fromCharCode(...file.subarray(0, 4)) !== 'RIFF') return file;
+  for (let at = 12; at + 8 <= file.length; ) {
+    const size = view.getUint32(at + 4, true);
+    if (String.fromCharCode(...file.subarray(at, at + 4)) === 'data') return file.subarray(at + 8, Math.min(file.length, at + 8 + size));
+    at += 8 + size + (size & 1);
+  }
+  return file;
 }

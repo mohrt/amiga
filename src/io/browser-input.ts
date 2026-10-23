@@ -34,6 +34,15 @@ const WASD_KEYS: Record<string, number> = {
   KeyG: Joy.Fire2,
 };
 
+/** The CD32 pad's other buttons, on the CD32 (which has no keyboard to type on). */
+const CD32_KEYS: Record<string, number> = {
+  Enter: Joy.Play,
+  KeyQ: Joy.Reverse,
+  KeyE: Joy.Forward,
+  KeyR: Joy.Green,
+  KeyT: Joy.Yellow,
+};
+
 export const KEY_SETS = { off: {}, numpad: NUMPAD_KEYS, arrows: ARROW_KEYS, wasd: WASD_KEYS } as const;
 export type KeySetName = keyof typeof KEY_SETS;
 
@@ -132,7 +141,7 @@ export class BrowserInput {
     if (event.metaKey && !['MetaLeft', 'MetaRight'].includes(event.code)) return;
     const code = event.code;
     for (const port of [0, 1] as const) {
-      const bits = this.keySets[port][code];
+      const bits = this.keySets[port][code] ?? (port === 1 && this.amiga.ports.cd32Pad ? CD32_KEYS[code] : undefined);
       if (bits === undefined) continue;
       event.preventDefault();
       if (down) {

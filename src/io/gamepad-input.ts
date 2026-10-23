@@ -20,11 +20,16 @@ const DPAD_UP = 12;
 const DPAD_DOWN = 13;
 const DPAD_LEFT = 14;
 const DPAD_RIGHT = 15;
+// The CD32 pad's: X and Y are green and yellow, the shoulders reverse and forward, Start play
+// (a joystick takes green as fire and yellow as the second button).
 const BUTTONS: [number, number][] = [
   [0, Joy.Fire],
-  [2, Joy.Fire],
+  [2, Joy.Green],
   [1, Joy.Fire2],
-  [3, Joy.Fire2],
+  [3, Joy.Yellow],
+  [4, Joy.Reverse],
+  [5, Joy.Forward],
+  [9, Joy.Play],
 ];
 
 const HAT_STEPS = [Joy.Up, Joy.Up | Joy.Right, Joy.Right, Joy.Down | Joy.Right, Joy.Down, Joy.Down | Joy.Left, Joy.Left, Joy.Up | Joy.Left];

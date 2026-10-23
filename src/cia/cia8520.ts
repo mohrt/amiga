@@ -137,6 +137,10 @@ export class Cia8520 {
   }
 
   /** Port A levels as driven by the CIA (input lines float high). */
+  get portADirection(): number {
+    return this.ddra;
+  }
+
   get portAOutput(): number {
     return (this.pra | ~this.ddra) & 0xff;
   }

@@ -36,7 +36,7 @@ type TypedArray =
 
 /**
  * Fields that are never part of a save state: the ROMs (the player supplies
- * the Kickstart), the floppies and the hard disk's contents (kept apart), scratch buffers,
+ * the Kickstart), the floppies', hard disk's and CD's contents (kept apart), scratch buffers,
  * the chips' links to each other (`host`), and physical inputs.
  */
 const SKIPPED_FIELDS = new Set([
@@ -54,6 +54,8 @@ const SKIPPED_FIELDS = new Set([
   'host',
   'joysticks',
   'table',
+  'currentDisc',
+  'extraSource',
 ]);
 
 const isTyped = (value: unknown): value is TypedArray => ArrayBuffer.isView(value) && !(value instanceof DataView);

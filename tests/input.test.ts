@@ -142,3 +142,33 @@ describe('gamepads', () => {
     expect(readGamepad(pad([1]))).toBe(Joy.Fire2);
   });
 });
+
+describe('the CD32 pad', () => {
+  it('shifts its buttons out on pin 9, clocked by the fire line, then a 1 and a 0', () => {
+    const ports = new ControlPorts();
+    ports.cd32Pad = true;
+    ports.joysticks[1].set('test', Joy.Fire | Joy.Play);
+    const pin9 = () => (ports.potgor() & 0x4000 ? 1 : 0);
+    // Pin 5 an output and high: held at the start. Then driven low: shifting, fire line an output.
+    ports.potgo = 0x3000;
+    expect(pin9(), 'blue, not pressed').toBe(1);
+    ports.potgo = 0x2000;
+    ports.writePortA(0x80, 0x80);
+    const bits = [pin9()];
+    for (let i = 0; i < 8; i++) {
+      ports.writePortA(0x00, 0x80);
+      ports.writePortA(0x80, 0x80);
+      bits.push(pin9());
+    }
+    // Blue, red (pressed), yellow, green, forward, reverse, play (pressed), then 1 and 0.
+    expect(bits).toEqual([1, 0, 1, 1, 1, 1, 0, 1, 0]);
+  });
+
+  it('lets a joystick take green and yellow as its two buttons', () => {
+    const ports = new ControlPorts();
+    ports.joysticks[1].set('test', Joy.Green);
+    expect(ports.fireBits() & 0x80).toBe(0);
+    ports.joysticks[1].set('test', Joy.Yellow);
+    expect(ports.potgor() & 0x4000).toBe(0);
+  });
+});

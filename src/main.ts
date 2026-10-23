@@ -39,6 +39,8 @@ const REMEMBERED_SETTINGS = [
 
 /** How often games' saves to their disks are written to browser storage. */
 const DISK_SAVE_INTERVAL_MS = 2000;
+/** Where the CD32's save memory is kept. */
+const NVRAM_KEY = 'amiga-cd32-nvram';
 const DRIVES = 2;
 
 /** How the machine was set up last time (earlier versions of the page kept some of it with the other settings). */
@@ -163,6 +165,9 @@ async function main(): Promise<void> {
 
     const applyMachine = (choices: MachineChoices) => {
       amiga.setModel(modelById(choices.model));
+      const nvram = amiga.akiko?.nvram;
+      const saved = nvram && localStorage.getItem(NVRAM_KEY);
+      if (nvram && saved) nvram.bytes.set(Uint8Array.from(atob(saved), (char) => char.charCodeAt(0)).subarray(0, nvram.bytes.length));
       amiga.setStandard(choices.standard);
       screen.setStandard(choices.standard);
       amiga.setMemory(choices.memory);
@@ -204,7 +209,21 @@ async function main(): Promise<void> {
     const persistHardDisk = async () => {
       if (hardDiskImage) await hardDisks.persist(hardDiskImage);
     };
-    const persistAll = () => Promise.all([...[0, 1].map((drive) => persistDisk(drive)), persistHardDisk()]);
+    /** The CD32's save memory, kept in the browser (1 KB, so in localStorage). */
+    const persistNvram = () => {
+      const nvram = amiga.akiko?.nvram;
+      if (!nvram?.changed) return;
+      nvram.changed = false;
+      try {
+        localStorage.setItem(NVRAM_KEY, btoa(String.fromCharCode(...nvram.bytes)));
+      } catch (error) {
+        console.warn('Could not keep the CD32 save memory:', error);
+      }
+    };
+    const persistAll = () => {
+      persistNvram();
+      return Promise.all([...[0, 1].map((drive) => persistDisk(drive)), persistHardDisk()]);
+    };
     setInterval(() => {
       for (let drive = 0; drive < DRIVES; drive++) {
         // Wait for the motor to stop, so a track being written is finished.
@@ -212,6 +231,7 @@ async function main(): Promise<void> {
       }
       // And for the hard drive to go quiet, so a file being written is complete.
       if (amiga.hardDrive && amiga.hardDrive.activity === 0) void persistHardDisk().catch((error: unknown) => console.warn('Could not keep the hard disk:', error));
+      persistNvram();
     }, DISK_SAVE_INTERVAL_MS);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') void persistAll();

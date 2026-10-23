@@ -1,3 +1,5 @@
+import type { AudioSource } from '../paula/audio';
+import { I2cEeprom } from './eeprom';
 import type { DmaMemory } from '../scsi/sdmac';
 
 /** Akiko answers in the first $8000 bytes from $B80000 (its 64 registers repeat). */
@@ -35,6 +37,14 @@ const DMA_DELAY_LINES = 3;
 /** Each TOC entry is sent three times, one a CD frame. */
 const TOC_REPEAT = 3;
 const SECTOR_BYTES = 2352;
+/** CD audio: 44.1 kHz stereo, 588 frames of two 16-bit samples a sector; mixed at half of full scale. */
+const CD_AUDIO_RATE = 44100;
+const FRAMES_PER_SECTOR = 588;
+const CD_AUDIO_VOLUME = 0.5 / 32768;
+/** Play notifications: started, and ended. */
+const NOTIFY_PLAY = 0x04;
+/** CD frames between a play command and the drive saying it has started. */
+const PLAY_START_FRAMES = 3;
 
 /** A CD in the drive: its table of contents and its sectors as the drive reads them (2352 bytes, raw). */
 export interface CdDisc {
@@ -58,7 +68,9 @@ const msfToLsn = (bytes: Uint8Array, at: number) => (fromBcd(bytes[at]) * 60 + f
  * checksum. Data sectors come by DMA into the 16 buffers PBX marks free. The
  * chip interrupts on INT2 (PORTS) for what INTENA lets through.
  */
-export class Akiko {
+export class Akiko implements AudioSource {
+  /** The CD audio's output (the CD32 switches it with CIA-A's PA0). */
+  audioOn = true;
   private currentDisc: CdDisc | null = null;
   /** The disc went in or out since the drive last said so. */
   private mediaChanged = false;
@@ -91,6 +103,16 @@ export class Akiko {
   private tocCounter = -1;
   private playing = false;
   private paused = false;
+  /** The audio being played: the sector and frame within it, the sector it ends at, and the sector's samples. */
+  private playSector = 0;
+  private playFrame = 0;
+  private playEnd = 0;
+  private playPhase = 0;
+  private readonly audioSector = new Uint8Array(SECTOR_BYTES);
+  private audioSectorNumber = -1;
+  /** Frames until the play-started notification (0 for none), and an end notification to give. */
+  private playStartIn = 0;
+  private playEnded = false;
   /** The sectors being read: from where, how many so far, and the lines until the next. */
   private dataOffset = -1;
   private sectorCounter = 0;
@@ -103,7 +125,8 @@ export class Akiko {
   private c2pWrite = 0;
   private c2pRead = -1;
 
-  /** The NVRAM's I2C clock and data lines (bits 7 and 6) and which of them the CPU drives. */
+  /** The save memory, on the I2C clock and data lines (bits 7 and 6), and which of them the CPU drives. */
+  readonly nvram = new I2cEeprom();
   private i2cDirection = 0;
   private i2cLines = 0xc0;
 
@@ -137,6 +160,8 @@ export class Akiko {
     this.initialized = 0;
     this.tocCounter = -1;
     this.playing = this.paused = false;
+    this.playStartIn = 0;
+    this.playEnded = false;
     this.dataOffset = -1;
     this.c2pWrite = 0;
     this.c2pRead = -1;
@@ -157,9 +182,11 @@ export class Akiko {
         return 0xca;
       case 0x03:
         return 0xfe;
-      case 0x30:
-        // No EEPROM answers yet, so the lines read as their pull-ups leave them (or as driven).
-        return this.i2cDirection ? (this.i2cLines & this.i2cDirection) | (0xc0 & ~this.i2cDirection) : 0xc0;
+      case 0x30: {
+        // A line the CPU doesn't drive is pulled up; SDA also reads low while the EEPROM pulls it.
+        const scl = !(this.i2cDirection & 0x80) || (this.i2cLines & 0x80) !== 0;
+        return (scl ? 0x80 : 0) | (this.nvram.dataLine ? 0x40 : 0);
+      }
       case 0x32:
         return this.i2cDirection;
       case 0x38:
@@ -239,9 +266,11 @@ export class Akiko {
     switch (reg) {
       case 0x30:
         this.i2cLines = value & 0xc0;
+        this.driveI2c();
         return;
       case 0x32:
         this.i2cDirection = value & 0xc0;
+        this.driveI2c();
         return;
       case 0x38:
       case 0x39:
@@ -340,6 +369,21 @@ export class Akiko {
       return;
     }
     if (this.initialized < 2) return;
+    if (this.playStartIn > 0 && --this.playStartIn === 0) {
+      this.result.fill(0);
+      this.result[0] = NOTIFY_PLAY;
+      this.result[1] = STATUS_PLAYING | 0x02 | DOOR_CLOSED;
+      this.sendResult(2);
+      return;
+    }
+    if (this.playEnded) {
+      this.playEnded = false;
+      this.result.fill(0);
+      this.result[0] = NOTIFY_PLAY;
+      this.result[1] = DOOR_CLOSED;
+      this.sendResult(2);
+      return;
+    }
     if (this.mediaChanged) {
       this.mediaChanged = false;
       this.sendResult(this.mediaStatus());
@@ -441,6 +485,7 @@ export class Akiko {
     if (this.noDisc()) return 2;
     if (kind === 1) {
       this.playing = false;
+      this.playStartIn = 0;
       this.result[1] = 0;
       return 2;
     }
@@ -452,6 +497,7 @@ export class Akiko {
   /** Seek, play audio or read data, from one MSF to another. */
   private multi(): number {
     const from = msfToLsn(this.commandBuffer, 1);
+    const to = msfToLsn(this.commandBuffer, 4);
     this.playing = this.paused = false;
     this.result[1] = 0;
     if (!this.disc) {
@@ -467,11 +513,40 @@ export class Akiko {
       // A play from before the first track asks for the TOC.
       this.tocCounter = 0;
     } else {
-      // Audio isn't played yet: the drive says it has started, and stays silent.
       this.result[1] = 0x42;
       this.playing = true;
+      this.playSector = from;
+      this.playFrame = 0;
+      this.playPhase = 0;
+      this.playEnd = Math.min(to, this.disc.sectorCount);
+      this.playStartIn = PLAY_START_FRAMES;
     }
     return 2;
+  }
+
+  /** CD audio for the output: the next sample at the output's rate, while a track plays. */
+  mix(out: Float32Array, sampleRate: number): void {
+    if (!this.playing || this.paused || !this.disc) return;
+    const volume = this.audioOn ? CD_AUDIO_VOLUME : 0;
+    if (this.audioSectorNumber !== this.playSector) {
+      if (!this.disc.readSector(this.playSector, this.audioSector)) this.audioSector.fill(0);
+      this.audioSectorNumber = this.playSector;
+    }
+    const at = this.playFrame * 4;
+    const view = this.audioSector;
+    out[0] += (((view[at + 1] << 24) >> 16) | view[at]) * volume;
+    out[1] += (((view[at + 3] << 24) >> 16) | view[at + 2]) * volume;
+    this.playPhase += CD_AUDIO_RATE;
+    while (this.playPhase >= sampleRate) {
+      this.playPhase -= sampleRate;
+      if (++this.playFrame < FRAMES_PER_SECTOR) continue;
+      this.playFrame = 0;
+      if (++this.playSector >= this.playEnd) {
+        this.playing = false;
+        this.playEnded = true;
+        return;
+      }
+    }
   }
 
   private mediaStatus(): number {
@@ -550,6 +625,12 @@ export class Akiko {
 
   private raise(bits: number): void {
     this.intreq = (this.intreq | bits) >>> 0;
+  }
+
+  /** The lines as the CPU leaves them: driven where its direction bit is set, pulled up where not. */
+  private driveI2c(): void {
+    const level = (bit: number) => !(this.i2cDirection & bit) || (this.i2cLines & bit) !== 0;
+    this.nvram.setLines(level(0x80), level(0x40));
   }
 
   // --- Chunky to planar --------------------------------------------------------------

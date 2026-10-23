@@ -7,7 +7,24 @@ export const Joy = {
   Fire: 0x10,
   /** The second button (pin 9), which a few games use. */
   Fire2: 0x20,
+  /** The CD32 pad's other buttons (its red and blue are Fire and Fire2); a joystick takes green as fire and yellow as the second button. */
+  Green: 0x40,
+  Yellow: 0x80,
+  Play: 0x100,
+  Reverse: 0x200,
+  Forward: 0x400,
 } as const;
+
+const FIRE_BUTTONS = Joy.Fire | Joy.Green;
+const SECOND_BUTTONS = Joy.Fire2 | Joy.Yellow;
+/** The CD32 pad's buttons in the order its shift register gives them. */
+const PAD_ORDER = [Joy.Fire2, Joy.Fire, Joy.Yellow, Joy.Green, Joy.Forward, Joy.Reverse, Joy.Play];
+/** POTGO and POTGOR for port 2: pin 9's output enable and data, pin 5's output enable and data. */
+const P9_OUT = 0x8000;
+const P9_DATA = 0x4000;
+const P5_OUT = 0x2000;
+const P5_DATA = 0x1000;
+const PORT2_FIRE = 0x80;
 
 /** What is plugged into port 1 (port 2 always has a joystick). */
 export type Port1Device = 'mouse' | 'joystick';
@@ -54,10 +71,26 @@ export class ControlPorts {
   private pendingX = 0;
   private pendingY = 0;
   potgo = 0;
+  /**
+   * A CD32 pad in port 2 (on the CD32). With pin 5 driven low it shifts its buttons out on pin 9,
+   * one for each falling edge of the fire line, which the CD32 then drives as a clock.
+   */
+  cd32Pad = false;
+  private padShift = 8;
+  private padClock = PORT2_FIRE;
 
   reset(): void {
     this.mouseX = this.mouseY = 0;
     this.potgo = 0;
+    this.padShift = 8;
+  }
+
+  /** CIA-A's port A changed: with the fire line an output, a falling edge clocks the pad's next button out. */
+  writePortA(output: number, direction: number): void {
+    const clock = output & PORT2_FIRE;
+    const shifting = !(this.potgo & P5_OUT) || !(this.potgo & P5_DATA);
+    if (this.cd32Pad && shifting && direction & PORT2_FIRE && clock !== this.padClock && !clock) this.padShift = Math.max(0, this.padShift - 1);
+    this.padClock = clock;
   }
 
   moveMouse(dx: number, dy: number): void {
@@ -88,8 +121,8 @@ export class ControlPorts {
 
   /** CIA-A port A bits 6 and 7: port 1's and port 2's fire buttons (active low). */
   fireBits(): number {
-    const port1 = this.port1 === 'mouse' ? this.mouseLeft : (this.joysticks[0].state & Joy.Fire) !== 0;
-    const port2 = (this.joysticks[1].state & Joy.Fire) !== 0;
+    const port1 = this.port1 === 'mouse' ? this.mouseLeft : (this.joysticks[0].state & FIRE_BUTTONS) !== 0;
+    const port2 = (this.joysticks[1].state & FIRE_BUTTONS) !== 0;
     return (port1 ? 0 : 0x40) | (port2 ? 0 : 0x80);
   }
 
@@ -100,13 +133,22 @@ export class ControlPorts {
       const level = this.potgo & outputEnable ? (this.potgo & dataBit) !== 0 : true;
       return level && !pressed ? dataBit : 0;
     };
-    const port1Second = this.port1 === 'mouse' ? this.mouseRight : (this.joysticks[0].state & Joy.Fire2) !== 0;
-    const port2Second = (this.joysticks[1].state & Joy.Fire2) !== 0;
-    return (
-      pin(0x0100, this.port1 === 'mouse' && this.mouseMiddle) |
-      pin(0x0400, port1Second) |
-      pin(0x1000, false) |
-      pin(0x4000, port2Second)
-    );
+    const port1Second = this.port1 === 'mouse' ? this.mouseRight : (this.joysticks[0].state & SECOND_BUTTONS) !== 0;
+    const port2Second = (this.joysticks[1].state & SECOND_BUTTONS) !== 0;
+    const port1 = pin(0x0100, this.port1 === 'mouse' && this.mouseMiddle) | pin(0x0400, port1Second);
+    if (this.cd32Pad) return port1 | this.padPins();
+    return port1 | pin(P5_DATA, false) | pin(P9_DATA, port2Second);
+  }
+
+  /** Port 2's pot pins with the CD32 pad in: pin 9 gives the button the shift register is at (low when pressed). */
+  private padPins(): number {
+    // Pin 5 driven high holds the register at its start (blue).
+    if (this.potgo & P5_OUT && this.potgo & P5_DATA) this.padShift = 8;
+    let pins = this.potgo & P5_DATA;
+    if (!(this.potgo & P9_OUT)) pins |= P9_DATA;
+    // After the seven buttons come a 1 and a 0, which say a pad is there.
+    if (this.padShift === 0) pins &= ~P9_DATA;
+    else if (this.padShift >= 2 && this.joysticks[1].state & PAD_ORDER[8 - this.padShift]) pins &= ~P9_DATA;
+    return pins;
   }
 }
