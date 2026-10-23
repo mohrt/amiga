@@ -182,10 +182,12 @@ const cueSheets = (dir: string): string[] =>
         return /\.cue$/i.test(name) ? [path] : [];
       });
 
-describe('CD32 games from disks/cd32/', () => {
+const cds = cueSheets(CD_DIR);
+
+describe.skipIf(cds.length === 0)('CD32 games from disks/cd32/', () => {
   const rom = localKickstart('kick31-cd32.rom');
   const extended = localKickstart('cd32-ext.rom');
-  for (const cue of cueSheets(CD_DIR)) {
+  for (const cue of cds) {
     const name = basename(cue).replace(/\.cue$/i, '');
     it.skipIf(!rom || !extended)(`${name} boots from the CD and draws a picture`, () => {
       const sheet = readFileSync(cue, 'utf8');
