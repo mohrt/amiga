@@ -10,6 +10,7 @@ import {
   kickstartChecksumOk,
   preferredKickstart,
   rankKickstarts,
+  isCd32ExtendedRom,
   suitsModel,
   type StoredRom,
 } from '../src/roms/system-roms';
@@ -155,8 +156,19 @@ describe('real Kickstarts from roms/', () => {
     expect(suitsModel(rom, modelById('a4000'))).toBe(false);
   });
 
-  it.skipIf(!real('kick31-cd32.rom'))('turns away the Kickstarts of models not emulated yet', () => {
-    expect(() => identifyKickstart('kick31-cd32.rom', real('kick31-cd32.rom')!)).toThrow(/CD32/);
+  it.skipIf(!real('kick31-cd32.rom') || !real('cd32-ext.rom'))('takes the CD32\'s Kickstart with its extended ROM, as two files or one', () => {
+    const kickstart = real('kick31-cd32.rom')!;
+    const extended = real('cd32-ext.rom')!;
+    expect(identifyKickstart('cd32.rom', kickstart).requires).toBe('cd32');
+    expect(isCd32ExtendedRom(extended)).toBe(true);
+    expect(isCd32ExtendedRom(kickstart)).toBe(false);
+    const both = new Uint8Array(kickstart.length * 2);
+    both.set(kickstart);
+    both.set(extended, kickstart.length);
+    const joined = identifyKickstart('cd32-1mb.rom', both);
+    expect(joined.title).toBe('Kickstart 3.1 (40.60, CD32)');
+    expect(joined.data).toEqual(kickstart);
+    expect(joined.extended).toEqual(extended);
   });
 
   it.skipIf(!real('kick13-overdump.rom'))('recognises an overdump of it', () => {

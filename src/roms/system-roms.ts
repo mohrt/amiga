@@ -39,8 +39,18 @@ const KNOWN_ROMS: Record<number, KnownRom> = {
   0xd6bae334: { name: 'Kickstart 3.1 (40.68, A4000)', requires: 'a4000' },
   0x2b4566f1: { name: 'Kickstart 3.1 (40.70, A4000)', requires: 'a4000' },
   0x75932c3a: { name: 'Kickstart 3.1 (40.70, A4000T)', unsuitable: 'it is made for the A4000T (68040 and AGA)' },
-  0x1e62d4a5: { name: 'Kickstart 3.1 (40.60, CD32)', unsuitable: 'it is made for the CD32 (68020 and AGA)' },
+  0x1e62d4a5: { name: 'Kickstart 3.1 (40.60, CD32)', requires: 'cd32' },
 };
+
+/** The CD32's extended ROM (40.60), which goes at $E00000 with its Kickstart. */
+const CD32_EXTENDED_ROM = 0x87746be2;
+const CD32_KICKSTART = 0x1e62d4a5;
+export const KICKSTART_1M = 0x100000;
+
+/** Whether a file is the CD32's extended ROM (which comes with its Kickstart rather than being one). */
+export function isCd32ExtendedRom(data: Uint8Array): boolean {
+  return data.length === KICKSTART_512K && crc32(data) === CD32_EXTENDED_ROM;
+}
 
 /** Commodore's Kickstarts for an A500, newest first: 3.1, 2.05, 2.04, 1.3, 1.2; then the A1200's 3.1 and 3.0, and the A4000's. */
 const PREFERRED_ROMS = [
@@ -117,6 +127,8 @@ export interface Kickstart extends StoredRom {
   warning: string | null;
   /** The model it needs, for the A1200's and A4000's ROMs. */
   requires?: ModelId;
+  /** The extended ROM for $E00000 that goes with it (the CD32's). */
+  extended?: Uint8Array;
 }
 
 /** Thrown for an Amiga Forever ROM when no rom.key has been given yet. */
@@ -198,6 +210,11 @@ export function identifyKickstart(name: string, file: Uint8Array, key?: Uint8Arr
       throw new Error(`${name} didn't decrypt to a Kickstart with that rom.key. Use the key that came with the ROM.`);
     }
   }
+  // The CD32's two ROMs, dumped as one 1 MB file: the Kickstart, then the extended ROM.
+  if (data.length === KICKSTART_1M && crc32(data.subarray(0, KICKSTART_512K)) === CD32_KICKSTART && isCd32ExtendedRom(data.subarray(KICKSTART_512K))) {
+    const kickstart = identifyKickstart(name, data.slice(0, KICKSTART_512K));
+    return { ...kickstart, extended: data.slice(KICKSTART_512K) };
+  }
   data = trimOverdump(data);
   if (data.length !== KICKSTART_256K && data.length !== KICKSTART_512K) {
     throw new Error(
@@ -268,7 +285,7 @@ export class SystemRomStore {
 
   save(rom: Kickstart): Promise<void> {
     void globalThis.navigator?.storage?.persist?.().catch(() => false);
-    return this.store.put(KICKSTART_KEY, { name: rom.name, data: rom.data });
+    return this.store.put(KICKSTART_KEY, { name: rom.name, data: withExtended(rom) });
   }
 
   /** The other Kickstarts that came with it (from a collection), offered to switch to. */
@@ -288,7 +305,7 @@ export class SystemRomStore {
   /** Replaces the Kickstarts offered to switch to. */
   async saveChoices(roms: Kickstart[]): Promise<void> {
     await this.forgetChoices();
-    for (const rom of roms) await this.store.put(`${CHOICE_PREFIX}${crc32(rom.data).toString(16)}`, { name: rom.name, data: rom.data });
+    for (const rom of roms) await this.store.put(`${CHOICE_PREFIX}${crc32(rom.data).toString(16)}`, { name: rom.name, data: withExtended(rom) });
   }
 
   private async forgetChoices(): Promise<void> {
@@ -299,4 +316,13 @@ export class SystemRomStore {
     await this.store.delete(KICKSTART_KEY);
     await this.forgetChoices();
   }
+}
+
+/** A Kickstart as it is kept: with its extended ROM after it, as one file (which identifyKickstart splits again). */
+function withExtended(rom: Kickstart): Uint8Array {
+  if (!rom.extended) return rom.data;
+  const joined = new Uint8Array(rom.data.length + rom.extended.length);
+  joined.set(rom.data);
+  joined.set(rom.extended, rom.data.length);
+  return joined;
 }

@@ -2,7 +2,7 @@ import type { MemoryConfig } from './amiga';
 import type { CpuModel } from './cpu/m68k';
 
 /** The Amigas the emulator can be. */
-export type ModelId = 'a500' | 'a1000' | 'a2000' | 'a500plus' | 'a600' | 'a1200' | 'a3000' | 'a4000';
+export type ModelId = 'a500' | 'a1000' | 'a2000' | 'a500plus' | 'a600' | 'a1200' | 'a3000' | 'a4000' | 'cd32';
 
 /** The custom chips: the original ones, the Enhanced Chip Set (Super Agnus and Super Denise), or AGA. */
 export type Chipset = 'ocs' | 'ecs' | 'aga';
@@ -30,11 +30,13 @@ export interface ModelSpec {
   /** The IDE port on the main board (Gayle), rather than one added on. */
   ideBuiltIn: boolean;
   /** Where the hard drive goes: an A600-style Gayle port (built in or added on), the A4000's own port, or the A3000's SCSI controller. */
-  ide?: 'a4000' | 'scsi';
+  ide?: 'a4000' | 'scsi' | 'none';
   /** Ramsey's revision, for the models with their 32-bit fast RAM (and Gary) on the main board. */
   ramsey?: number;
   /** The A3000's SCSI controller. */
   scsi?: boolean;
+  /** The CD32: Akiko and its CD drive, an extended ROM at $E00000, and no floppy drive or keyboard. */
+  cd32?: boolean;
   /** Which Kickstarts suit it, newest first (by their major version), for picking from a collection. */
   kickstarts: number[];
   /** Shown in Machine setup. */
@@ -154,6 +156,20 @@ export const MODELS: ModelSpec[] = [
     ramsey: 0x0f,
     kickstarts: [40, 39],
     romHint: 'Kickstart 3.0 or 3.1 for the A4000 (its own, 39.106 or 40.68).',
+  },
+  {
+    id: 'cd32',
+    name: 'Amiga CD32',
+    year: 1993,
+    cpu: '68ec020',
+    chipset: 'aga',
+    memory: [option('2048', 2048, 0)],
+    clock: false,
+    ideBuiltIn: false,
+    ide: 'none',
+    cd32: true,
+    kickstarts: [40],
+    romHint: 'Kickstart 3.1 (40.60) for the CD32 and its extended ROM: both files, or one 1 MB file of the two.',
   },
 ];
 

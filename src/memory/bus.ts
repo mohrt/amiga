@@ -2,6 +2,7 @@ import type { Amiga } from '../amiga';
 import type { M68kBus } from '../cpu/m68k';
 import { A4000Ide } from '../ide/a4000-ide';
 import { A3000Scsi } from '../scsi/sdmac';
+import { Akiko } from '../cd32/akiko';
 import { RealTimeClock } from '../io/clock';
 
 const CHIP_END = 0x200000;
@@ -149,6 +150,7 @@ export class AmigaBus implements M68kBus {
       const a = address - SLOW_START;
       return (amiga.slow[a] << 8) | amiga.slow[a + 1];
     }
+    if (amiga.akiko && Akiko.handles(address)) return amiga.akiko.read16(address);
     if (address >= 0xa00000 && address < 0xc00000) return this.ciaRead(address);
     if (address >= EXTENDED_ROM_START && address < EXTENDED_ROM_END && amiga.extendedRom) {
       const a = address & 0x7fffe;
@@ -198,6 +200,7 @@ export class AmigaBus implements M68kBus {
       this.chipBusCycle();
       return amiga.slow[address - SLOW_START];
     }
+    if (amiga.akiko && Akiko.handles(address)) return amiga.akiko.read8(address);
     if (address >= 0xa00000 && address < 0xc00000) {
       const word = this.ciaRead(address);
       return address & 1 ? word & 0xff : word >> 8;
@@ -234,6 +237,8 @@ export class AmigaBus implements M68kBus {
       const a = address - SLOW_START;
       amiga.slow[a] = value >> 8;
       amiga.slow[a + 1] = value;
+    } else if (amiga.akiko && Akiko.handles(address)) {
+      amiga.akiko.write16(address, value);
     } else if (address >= 0xa00000 && address < 0xc00000) {
       this.ciaWrite(address, value, false);
     } else if (amiga.gayle?.handles(address)) {
@@ -266,6 +271,8 @@ export class AmigaBus implements M68kBus {
     } else if (address >= SLOW_START && address < SLOW_START + amiga.slow.length) {
       this.chipBusCycle();
       amiga.slow[address - SLOW_START] = value;
+    } else if (amiga.akiko && Akiko.handles(address)) {
+      amiga.akiko.write8(address, value);
     } else if (address >= 0xa00000 && address < 0xc00000) {
       this.ciaWrite(address, value, true);
     } else if (amiga.gayle?.handles(address)) {

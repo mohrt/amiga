@@ -19,6 +19,7 @@ import { DiskPanel } from './ui/disk-panel';
 import { downloadFile } from './ui/download';
 import { DEFAULT_CHOICES, askForMachine, memoryLabel, modelMemory, type MachineChoices, type MachineSetup } from './ui/machine-setup';
 import { memoryByKey, modelById } from './models';
+import { CdImage } from './cd32/disc';
 import { JsonRecord, Settings } from './ui/settings';
 import { attachToolbar } from './ui/toolbar';
 import { crc32 } from './util/crc32';
@@ -141,7 +142,7 @@ async function main(): Promise<void> {
     screen.onAspect(screen.aspect);
     const emulator = new Emulator(screen);
     const amiga = emulator.amiga;
-    amiga.setKickstart(kickstart.data);
+    amiga.setKickstart(kickstart.data, kickstart.extended ?? null);
     const audio = await AudioOutput.create().catch((error: unknown) => {
       console.warn('Audio is unavailable:', error);
       return null;
@@ -298,7 +299,33 @@ async function main(): Promise<void> {
     };
 
     /** Files dropped or chosen together: every disk in them gets a button, and the first goes in. */
+    /** CD images (an ISO, or a CUE sheet with its BIN files) go in the CD32's drive. */
+    const openCd = async (chosen: File[]): Promise<boolean> => {
+      const cue = chosen.find((file) => /\.cue$/i.test(file.name));
+      const iso = chosen.find((file) => /\.iso$/i.test(file.name));
+      if (!cue && !iso && !chosen.some((file) => /\.bin$/i.test(file.name))) return false;
+      if (!amiga.akiko) {
+        diskPanel.showMessage('CD images go in the CD32\u2019s drive: choose the Amiga CD32 in Machine setup.', true);
+        return true;
+      }
+      let disc: CdImage;
+      if (cue) {
+        const bins = new Map<string, Uint8Array>();
+        for (const file of chosen) if (file !== cue) bins.set(file.name, new Uint8Array(await file.arrayBuffer()));
+        disc = CdImage.fromCue(await cue.text(), bins);
+      } else if (iso) {
+        disc = CdImage.fromIso(new Uint8Array(await iso.arrayBuffer()));
+      } else {
+        diskPanel.showMessage('Add the .cue file that goes with the .bin, so the tracks are known.', true);
+        return true;
+      }
+      amiga.akiko.disc = disc;
+      diskPanel.showMessage(`${(cue ?? iso)!.name} is in the CD drive.`, false);
+      return true;
+    };
+
     const openFiles = async (chosen: File[], drive: number) => {
+      if (await openCd(chosen)) return;
       const files = (await Promise.all(chosen.map((file) => filesFrom(file)))).flat();
       if (chosen.length > 1) files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
       const first = firstDisk(files);
@@ -435,7 +462,7 @@ async function main(): Promise<void> {
         await applyHardDisk(setup);
         kickstart = setup.kickstart;
         kickstartCrc = crc32(setup.kickstart.data);
-        amiga.setKickstart(setup.kickstart.data);
+        amiga.setKickstart(setup.kickstart.data, setup.kickstart.extended ?? null);
         choices = setup.choices;
         machineRecord.write(choices);
         applyMachine(choices);

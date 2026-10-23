@@ -5,8 +5,10 @@ import { isZip, readZip } from '../drive/zip';
 import { HardDiskImage, isPartitionOnly } from '../ide/image';
 import type { HardDiskInfo } from '../storage/hard-disks';
 import {
+  KICKSTART_1M,
   KICKSTART_256K,
   KICKSTART_512K,
+  isCd32ExtendedRom,
   NeedsRomKey,
   identifyKickstart,
   hasIdeDriver,
@@ -24,7 +26,7 @@ function interesting(name: string, size: number): boolean {
   const base = name.split('/').pop()!;
   if (base.startsWith('.') || name.startsWith('__MACOSX/')) return false;
   if (base.toLowerCase() === 'rom.key' || base.toLowerCase().endsWith('.zip')) return true;
-  return [KICKSTART_256K, KICKSTART_512K, KICKSTART_256K / 2].includes(size) || size === KICKSTART_256K + 11 || size === KICKSTART_512K + 11;
+  return [KICKSTART_256K, KICKSTART_512K, KICKSTART_1M, KICKSTART_256K / 2].includes(size) || size === KICKSTART_256K + 11 || size === KICKSTART_512K + 11;
 }
 
 /** ROM collections often hold a zip per ROM, so zips are opened this many levels down. */
@@ -185,11 +187,18 @@ export function askForMachine(root: HTMLElement, store: SystemRomStore, initial:
     const model = modelById(modelSelect.value);
     const fits = !kickstart || suitsModel(kickstart, model);
     const required = kickstart?.requires ? modelById(kickstart.requires).name : '';
-    const note = kickstart?.warning ?? (fits ? null : `made for the ${required}; choose it as the model to start this Kickstart`);
+    const missingExtended = !!kickstart && fits && !!model.cd32 && !kickstart.extended;
+    const note =
+      kickstart?.warning ??
+      (!fits
+        ? `made for the ${required}; choose it as the model to start this Kickstart`
+        : missingExtended
+          ? 'the CD32 also needs its extended ROM (40.60); add it with the Kickstart, or a 1 MB file of both'
+          : null);
     row.dataset.state = kickstart ? (note ? 'warning' : 'loaded') : 'missing';
     status.textContent = kickstart ? `Loaded: ${kickstart.title}, from ${kickstart.name}${note ? ` (${note})` : ''}` : 'Not loaded yet';
     keyRow.hidden = !encrypted;
-    startButton.disabled = !kickstart || !fits;
+    startButton.disabled = !kickstart || !fits || missingExtended;
     forgetButton.hidden = !kickstart;
     choiceRow.hidden = choices.length < 2;
     renderHardDisk();
@@ -269,9 +278,15 @@ export function askForMachine(root: HTMLElement, store: SystemRomStore, initial:
     for (const file of files.filter((entry) => entry.name.toLowerCase().endsWith('.key'))) key = new Uint8Array(await file.arrayBuffer());
     /** Every usable Kickstart in the batch; the best goes in. */
     const found: Kickstart[] = [];
+    /** The CD32's extended ROM, which goes with its Kickstart. */
+    let extended: Uint8Array | null = null;
     for (const file of files) {
       if (file.name.toLowerCase().endsWith('.key')) continue;
       const data = new Uint8Array(await file.arrayBuffer());
+      if (isCd32ExtendedRom(data)) {
+        extended = data;
+        continue;
+      }
       try {
         // Half of a 512K ROM is the size of a whole 256K one, so only a file that isn't a Kickstart is taken as a half.
         if (data.length === KICKSTART_256K / 2 || (data.length === KICKSTART_512K / 2 && !looksLikeKickstart(data))) {
@@ -298,6 +313,12 @@ export function askForMachine(root: HTMLElement, store: SystemRomStore, initial:
       } catch (error) {
         errors.push(error instanceof Error ? error.message : String(error));
       }
+    }
+    if (extended) {
+      const cd32 = found.filter((rom) => rom.requires === 'cd32');
+      if (cd32.length) cd32.forEach((rom) => (rom.extended = extended!));
+      else if (kickstart?.requires === 'cd32') await use({ ...kickstart, extended });
+      else errors.push('That is the CD32 extended ROM; add it together with the CD32 Kickstart (40.60).');
     }
     if (found.length > 0) {
       // The other files of a batch (a collection's ROMs for other Amigas) don't matter once one fits.

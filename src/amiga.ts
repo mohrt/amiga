@@ -8,6 +8,7 @@ import { FloppyDrive } from './drive/floppy';
 import { A4000Ide } from './ide/a4000-ide';
 import { ScsiDisk } from './scsi/disk';
 import { A3000Scsi } from './scsi/sdmac';
+import { Akiko } from './cd32/akiko';
 import { Gayle } from './ide/gayle';
 import type { HardDiskImage } from './ide/image';
 import { RealTimeClock } from './io/clock';
@@ -63,6 +64,8 @@ export class Amiga {
   ramseyControl = 0;
   /** The A3000's SCSI controller. */
   scsi: A3000Scsi | null = null;
+  /** The CD32's Akiko chip, with its CD drive. */
+  akiko: Akiko | null = null;
   /** The battery-backed clock of the models that have one. */
   clock: RealTimeClock | null = null;
   /** The Kickstart, filling the 512K at $F80000 (a 256K ROM twice). */
@@ -100,7 +103,8 @@ export class Amiga {
         return amiga.diskDma;
       },
       indexPulse: () => this.ciaB.pulseFlag(),
-      heldInterrupts: () => (this.ciaA.interrupt || this.scsi?.interrupting ? Int.PORTS : 0) | (this.ciaB.interrupt ? Int.EXTER : 0),
+      heldInterrupts: () =>
+        (this.ciaA.interrupt || this.scsi?.interrupting || this.akiko?.interrupting ? Int.PORTS : 0) | (this.ciaB.interrupt ? Int.EXTER : 0),
     });
     this.agnus = new Agnus(this.chip, this.denise, {
       writeRegister: (reg, value) => this.writeCustom(reg, value),
@@ -109,6 +113,8 @@ export class Amiga {
         this.keyboard.tick();
         this.gayle?.tick();
         this.scsi?.tick();
+        this.akiko?.tick();
+        if (this.scsi?.interrupting || this.akiko?.interrupting) this.paula.raise(Int.PORTS);
       },
       onFrame: () => {
         this.ciaA.countEvent();
@@ -191,8 +197,9 @@ export class Amiga {
 
   // --- Setup -------------------------------------------------------------------------
 
-  /** Puts a Kickstart (256K or 512K) in; takes effect at the next power on. */
-  setKickstart(rom: Uint8Array): void {
+  /** Puts a Kickstart (256K or 512K) in, with the extended ROM at $E00000 it may have (the CD32's); takes effect at the next power on. */
+  setKickstart(rom: Uint8Array, extended: Uint8Array | null = null): void {
+    this.extendedRom = extended;
     if (rom.length === ROM_SPACE / 2) {
       this.rom.set(rom, 0);
       this.rom.set(rom, ROM_SPACE / 2);
@@ -213,6 +220,9 @@ export class Amiga {
     this.clock = model.clock ? (this.clock ?? new RealTimeClock()) : null;
     if (this.gayle instanceof Gayle) this.gayle.aga = aga;
     this.scsi = model.scsi ? (this.scsi ?? new A3000Scsi(this.bus.dmaMemory)) : null;
+    this.akiko = model.cd32 ? (this.akiko ?? new Akiko(this.bus.dmaMemory, () => this.agnus.frameLines)) : null;
+    // The CD32 has no floppy drive.
+    this.drives[0].connected = !model.cd32;
   }
 
   setMemory(config: MemoryConfig): void {
@@ -254,7 +264,7 @@ export class Amiga {
   attachHardDisk(image: HardDiskImage | null): void {
     const raisePorts = () => this.paula.raise(Int.PORTS);
     if (this.scsi) this.scsi.drives[0] = image && this.model.ide === 'scsi' ? new ScsiDisk(image) : null;
-    if (!image || this.model.ide === 'scsi') this.gayle = null;
+    if (!image || this.model.ide === 'scsi' || this.model.ide === 'none') this.gayle = null;
     else if (this.model.ide === 'a4000') this.gayle = new A4000Ide(image, raisePorts);
     else {
       const gayle = new Gayle(image, raisePorts);
@@ -310,6 +320,7 @@ export class Amiga {
     this.agnus.reset();
     this.gayle?.reset();
     this.scsi?.reset();
+    this.akiko?.reset();
     this.zorro?.reset();
     this.eClock = CCKS_PER_E_TICK;
   }

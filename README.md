@@ -2,7 +2,7 @@
 
 **Play it at [mohrt.github.io/amiga](https://mohrt.github.io/amiga/)**
 
-A Commodore Amiga emulator written from scratch in TypeScript: the Amiga 500, and in **Machine setup...** the Amiga 1000, 2000, 500 Plus, 600, 1200, 3000 and 4000. It has:
+A Commodore Amiga emulator written from scratch in TypeScript: the Amiga 500, and in **Machine setup...** the Amiga 1000, 2000, 500 Plus, 600, 1200, 3000, 4000 and CD32. It has:
 
 - **CPU:** a 68000 that passes Tom Harte's SingleStepTests for every instruction, cycle counts included. It is the same core as the [Genesis emulator](https://mohrt.github.io/genesis/). It waits for the chip bus as the real one does, and its interrupts, branches and returns make their bus accesses in the real CPU's order. For the A1200 it becomes a 68EC020 at twice the speed: the 68020's addressing modes, instructions (32-bit multiply and divide, bit fields, CAS, CHK2, MOVEC and the rest) and exception frames, with the vector base register. For the A3000 and A4000 it is a 68030 at 25 MHz with all 32 address bits, its data cache bits and its MMU's registers (Kickstart leaves the MMU off, so addresses aren't translated).
 - **Agnus:** the original chipset's (OCS) DMA controller, the ECS Super Agnus, and the A1200's AGA Alice with its 32- and 64-bit fetches (FMODE), eight bitplanes and scan doubling. Each memory cycle of a line goes to refresh, disk, sound, sprites or bitplanes, then to the Copper, then the blitter, and the CPU gets the cycle if it is still free. Bitplane fetching runs the hardware's DDF logic (the hardware start and stop, the last fetch unit with its modulos, the vertical window flip-flop), and register writes take effect after the few cycles they take on the real chips.
@@ -11,6 +11,7 @@ A Commodore Amiga emulator written from scratch in TypeScript: the Amiga 500, an
 - **Denise:** lores and hires, up to six bitplanes scrolled per playfield, dual playfield, hold-and-modify (on either playfield mode) and extra half-brite, the invalid plane counts and priorities, eight sprites (attached in pairs for 15 colours), collisions and interlace. The horizontal display window is the hardware's flip-flop. ECS Denise adds super-hires and the border blank; the A1200's Lisa has 256 colours from a 24-bit palette, HAM8, colour banks for the playfields and sprites, readable colour registers, and sprites 32 and 64 pixels wide.
 - **Paula:** four sound channels with modulation and the A500's two filters, the interrupt controller (whose level reaches the CPU three cycles later, as on the hardware), and the disk controller.
 - **Everything else:** two 8520 CIAs, the keyboard, a mouse and joysticks, and the internal drive DF0 with an optional external DF1; the battery-backed clock of the A2000, A500 Plus, A3000 and A4000, and fast RAM (Zorro II, the A1200's trapdoor, or the A3000's and A4000's 32-bit RAM on the main board, with their Ramsey and Gary chips). The A3000's SCSI controller (its SDMAC and WD33C93) runs the SCSI bus phases, with the hard drive at ID 0.
+- **The CD32's Akiko chip:** its CD drive (the TOC, data sectors by DMA into its 16 buffers, the drive's command and result rings with their checksums), and the chunky-to-planar converter. CD images go in as an `.iso`, or a `.cue` with its `.bin` files, dropped on the page or chosen together.
 - **A hard drive:** an IDE drive on the A600's and A1200's Gayle port or the A4000's own port (added on for the other models), or a SCSI drive on the A3000, which Kickstart 3.x's own driver uses.
 
 Drop an `.adf`, `.adz` or `.zip` onto the page to put it in a drive. PAL and NTSC machines are both available.
@@ -40,6 +41,7 @@ The toolbar has pause, reset (Ctrl-Amiga-Amiga), power cycle and full screen. **
   | Amiga 1200 | 1992 | 68EC020, AGA, IDE | 2MB chip, with 4 or 8MB of trapdoor fast RAM | 3.0 or 3.1 for the A1200 (the A500's 1.3 works too) |
   | Amiga 3000 | 1990 | 68030, ECS, SCSI, battery clock | 1MB or 2MB chip, with 4 to 16MB of fast RAM on the main board | 3.1 for the A3000 |
   | Amiga 4000 | 1992 | 68030, AGA, IDE, battery clock | 2MB chip, with 4 to 16MB of fast RAM on the main board | 3.0 or 3.1 for the A4000 |
+  | Amiga CD32 | 1993 | 68EC020, AGA, Akiko, CD drive | 2MB chip | 3.1 (40.60) for the CD32, with its extended ROM |
 
 - **TV:** PAL (50 Hz) or NTSC (60 Hz).
 - **Memory:** the model's choices above. For the A500, 512K chip RAM plus the 512K "slow" RAM of the trapdoor expansion is the most compatible.
@@ -65,7 +67,7 @@ Installing Workbench 3.1 on it:
 No Kickstart or game files are included in this repository; the only ROMs in it are the free AROS ones the tests use.
 
 - **Kickstart:** the Amiga's operating system ROM is still under copyright, so the site never serves it. On the first visit the page shows a setup panel in place of the screen, asking for a Kickstart image. Kickstart 1.3 is the A500's own and runs the most games; 1.2, 2.04 and 3.1 for the A500 work too.
-  - The panel recognises Commodore's originals by checksum. The A1200's, A3000's and A4000's 3.0 and 3.1 only start on their own models. It turns away ROMs made for Amigas not emulated yet, the A4000T's and the CD32's, and the A3000's older SuperKickstart ones.
+  - The panel recognises Commodore's originals by checksum. The A1200's, A3000's and A4000's 3.0 and 3.1 only start on their own models. The CD32 needs its extended ROM too: choose both files together, or a 1 MB file holding the two. It turns away ROMs made for Amigas not emulated yet, the A4000T's, and the A3000's older SuperKickstart ones.
   - It also accepts byte-swapped dumps, overdumps (a 256K ROM repeated twice), dumps of the two ROM chips, and Amiga Forever's encrypted ROMs together with their `rom.key`.
   - A whole ROM collection works too, even one with a zip for each ROM inside a zip. The panel uses the newest Kickstart for the A500 in it (3.1, then 2.05, 2.04, 1.3 and 1.2), or the model's own 3.1 or 3.0 for an Amiga 1200, 3000 or 4000. Its **Use** menu switches to any of the others found, and they're kept for later visits too. Kickstart 1.3 runs the most A500 games.
   - The ROM is kept in the browser's IndexedDB, with persistent storage requested, so later visits start straight away. **Machine setup...** in the toolbar changes or forgets it.
@@ -85,13 +87,13 @@ Your disk images are never changed. What games write to a disk is kept in the br
 
 ## Accuracy
 
-Kickstart 1.2, 1.3, 2.04, 3.0, 3.1 and AROS all start, and each model reaches its insert-disk screen with its own Kickstart. AmigaDOS boots from disk, the free games and demos such as Mandarine's System Zoetrope run, and Workbench 3.1 starts on the A1200, A3000 and A4000 (with the AGA screen modes on the A1200 and A4000).
+Kickstart 1.2, 1.3, 2.04, 3.0, 3.1 and AROS all start, and each model reaches its insert-disk screen with its own Kickstart. AmigaDOS boots from disk, the free games and demos such as Mandarine's System Zoetrope run, Workbench 3.1 starts on the A1200, A3000 and A4000 (with the AGA screen modes on the A1200 and A4000), and the CD32 shows its start screen and reads a disc's TOC and data.
 
 The chips are run up to the CPU's time whenever it touches the chip bus, and the CPU waits for a cycle the DMA, the Copper and the blitter leave free. Within an instruction, the CPU's internal cycles are counted per instruction; only interrupts, branches and returns place them between the memory accesses as the real CPU does.
 
 `npm run fetch:hw-tests` downloads a sample of the chipset tests from Dirk Hoffmann's vAmigaTS suite, a few from each group (`-- 30` takes thirty). Each test is a disk with a screenshot from vAmiga, a cycle-exact emulator checked against real Amigas (some screenshots were taken with vAmiga's gamma correction on, which the comparison allows for). 45 of the 47 A500 tests in the default sample match vAmiga's picture, and 208 of the 236 in the larger one. The rest are mostly CPU-timed code a cycle or two off, a bitplane pointer written while it is being fetched, and sprites switched in the middle of a line. `-- aga` adds the tests vAmiga runs on an A1200, 69 of whose 77 match: of the rest, four time the 68EC020 against the blitter, and in four (FMODE 2) vAmiga's picture differs from the photo of a real A1200 that comes with the test, which ours matches. They are listed with the reason in `tests/hardware.test.ts`, which expects them to fail, so one that starts matching shows up. `HW_REPORT=1` prints how much of each picture matches, and with `SHOTS=<dir>` saves a picture of ours, vAmiga's and the difference.
 
-Not covered: the 68EC020's and 68030's own instruction timings (they run on the 68000's, at their clock) and their caches, the 68030's address translation and the 68040, ECS's and AGA's productivity modes (super-hires shows every other pixel), the serial and parallel ports, PCMCIA, and DMS and IPF images. The CD32 (its Akiko chip and CD drive) and an FPU are to come.
+Not covered: the 68EC020's and 68030's own instruction timings (they run on the 68000's, at their clock) and their caches, the 68030's address translation and the 68040, ECS's and AGA's productivity modes (super-hires shows every other pixel), the serial and parallel ports, PCMCIA, and DMS and IPF images. Not yet: the CD32's audio tracks (the drive says they play, silently), its joypad (a joystick stands in for it) and its save memory (NVRAM), and an FPU.
 
 ## Development
 
