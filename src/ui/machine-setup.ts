@@ -217,6 +217,8 @@ export function askForMachine(root: HTMLElement, store: SystemRomStore, initial:
     exportButton.disabled = hardDiskChange.kind !== 'keep' || !stored;
     deleteButton.disabled = !disk;
     const notes = [hdWarning];
+    const model = modelById(modelSelect.value);
+    if (hardDrive.checked && model.ide === 'none') notes.push(`The ${model.name}\u2019s hard drive goes on its SCSI controller, which isn\u2019t emulated yet, so it stays off.`);
     if (hardDrive.checked && !disk) notes.push('Make a new hard disk or import one, or the drive stays empty.');
     if (hardDrive.checked && kickstart && !hasIdeDriver(kickstart.data)) {
       notes.push(`${kickstart.title} has no driver for this drive; it needs Kickstart 3.1 or the A600's 2.05.`);

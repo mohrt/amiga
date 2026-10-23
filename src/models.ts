@@ -2,7 +2,7 @@ import type { MemoryConfig } from './amiga';
 import type { CpuModel } from './cpu/m68k';
 
 /** The Amigas the emulator can be. */
-export type ModelId = 'a500' | 'a1000' | 'a2000' | 'a500plus' | 'a600' | 'a1200' | 'a4000';
+export type ModelId = 'a500' | 'a1000' | 'a2000' | 'a500plus' | 'a600' | 'a1200' | 'a3000' | 'a4000';
 
 /** The custom chips: the original ones, the Enhanced Chip Set (Super Agnus and Super Denise), or AGA. */
 export type Chipset = 'ocs' | 'ecs' | 'aga';
@@ -29,8 +29,12 @@ export interface ModelSpec {
   clock: boolean;
   /** The IDE port on the main board (Gayle), rather than one added on. */
   ideBuiltIn: boolean;
-  /** Where the hard drive goes: an A600-style Gayle port (built in or added on), or the A4000's own port. */
-  ide?: 'a4000';
+  /** Where the hard drive goes: an A600-style Gayle port (built in or added on), the A4000's own port, or nowhere yet (the A3000's is SCSI). */
+  ide?: 'a4000' | 'none';
+  /** Ramsey's revision, for the models with their 32-bit fast RAM (and Gary) on the main board. */
+  ramsey?: number;
+  /** The A3000's SCSI controller (with no drive on it yet). */
+  scsi?: boolean;
   /** Which Kickstarts suit it, newest first (by their major version), for picking from a collection. */
   kickstarts: number[];
   /** Shown in Machine setup. */
@@ -123,6 +127,21 @@ export const MODELS: ModelSpec[] = [
     romHint: 'Kickstart 3.0 or 3.1 for the A1200 (its own, 39.106 or 40.68); the A500\u2019s 1.3 starts on it too.',
   },
   {
+    id: 'a3000',
+    name: 'Amiga 3000',
+    year: 1990,
+    cpu: '68030',
+    chipset: 'ecs',
+    memory: [option('1024+4096', 1024, 0, 4096), option('2048+8192', 2048, 0, 8192), option('2048+16384', 2048, 0, 16384), option('1024', 1024, 0)],
+    clock: true,
+    ideBuiltIn: false,
+    ide: 'none',
+    ramsey: 0x0d,
+    scsi: true,
+    kickstarts: [40],
+    romHint: 'Kickstart 3.1 for the A3000 (its own, 40.68).',
+  },
+  {
     id: 'a4000',
     name: 'Amiga 4000',
     year: 1992,
@@ -132,6 +151,7 @@ export const MODELS: ModelSpec[] = [
     clock: true,
     ideBuiltIn: true,
     ide: 'a4000',
+    ramsey: 0x0f,
     kickstarts: [40, 39],
     romHint: 'Kickstart 3.0 or 3.1 for the A4000 (its own, 39.106 or 40.68).',
   },

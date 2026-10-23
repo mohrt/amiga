@@ -1,6 +1,7 @@
 import type { Amiga } from '../amiga';
 import type { M68kBus } from '../cpu/m68k';
 import { A4000Ide } from '../ide/a4000-ide';
+import { A3000Scsi } from '../scsi/sdmac';
 import { RealTimeClock } from '../io/clock';
 
 const CHIP_END = 0x200000;
@@ -12,16 +13,14 @@ const ROM_START = 0xf80000;
 const CUSTOM_ECHO_END = 0xd80000;
 /** While the overlay is on, the ROM also appears at the bottom of memory (where the CPU finds its reset vectors). */
 const OVERLAY_END = 0x80000;
-/** The 68030's addresses above the 24-bit space; the A4000's main board RAM ends at $8000000. */
+/** The 68030's addresses above the 24-bit space; the A3000's and A4000's main board RAM ends at $8000000. */
 const HIGH_START = 0x1000000;
 const MOTHERBOARD_RAM_END = 0x8000000;
-/** Gary's registers (bit 7 of $DE0000-$DE0002) and Ramsey's control and version, on the A4000. */
+/** Gary's registers (bit 7 of $DE0000-$DE0002) and Ramsey's control and version, on the A3000 and A4000. */
 const GARY_START = 0xde0000;
 const GARY_END = 0xde0003;
 const RAMSEY_CONTROL = 0xde0003;
 const RAMSEY_VERSION = 0xde0043;
-/** Ramsey revision 7, as in later A4000s. */
-const RAMSEY_REVISION = 0x0f;
 
 /**
  * The A500's address decoding, from the CPU's side: chip RAM (with the ROM
@@ -82,21 +81,21 @@ export class AmigaBus implements M68kBus {
     return address >= SLOW_START + this.amiga.slow.length && address >= SLOW_START && address < CUSTOM_ECHO_END;
   }
 
-  /** The A4000's main board RAM, as an offset into it, or -1 for an address outside it. */
+  /** The main board RAM (A3000 and A4000), as an offset into it, or -1 for an address outside it. */
   private motherboardOffset(address: number): number {
     const ram = this.amiga.motherboardRam;
     const offset = address - (MOTHERBOARD_RAM_END - ram.length);
     return offset >= 0 && offset < ram.length ? offset : -1;
   }
 
-  /** Gary and Ramsey answer on the A4000 only. */
+  /** Gary and Ramsey answer on the A3000 and A4000 only. */
   private isGary(address: number): boolean {
-    return this.amiga.model.cpu === '68030' && address >= GARY_START && address <= RAMSEY_VERSION && (address <= RAMSEY_CONTROL || address === RAMSEY_VERSION);
+    return this.amiga.model.ramsey !== undefined && address >= GARY_START && address <= RAMSEY_VERSION && (address <= RAMSEY_CONTROL || address === RAMSEY_VERSION);
   }
 
   private garyRead(address: number): number {
     const amiga = this.amiga;
-    if (address === RAMSEY_VERSION) return RAMSEY_REVISION;
+    if (address === RAMSEY_VERSION) return amiga.model.ramsey ?? 0;
     if (address === RAMSEY_CONTROL) return amiga.ramseyControl;
     const value = amiga.gary[address - GARY_START];
     // Reading the cold-boot bit clears it, so a later reset reads as a warm one.
@@ -136,6 +135,7 @@ export class AmigaBus implements M68kBus {
       return (amiga.extendedRom[a] << 8) | amiga.extendedRom[a + 1];
     }
     if (amiga.gayle?.handles(address)) return amiga.gayle.read16(address);
+    if (amiga.scsi && A3000Scsi.handles(address)) return amiga.scsi.read16(address);
     if (amiga.model.ide === 'a4000' && A4000Ide.handles(address)) return A4000Ide.readEmpty(address) << 8;
     return this.expansionRead(address, false);
   }
@@ -183,6 +183,7 @@ export class AmigaBus implements M68kBus {
       return address & 1 ? word & 0xff : word >> 8;
     }
     if (amiga.gayle?.handles(address)) return amiga.gayle.read8(address);
+    if (amiga.scsi && A3000Scsi.handles(address)) return amiga.scsi.read8(address);
     if (amiga.model.ide === 'a4000' && A4000Ide.handles(address)) return A4000Ide.readEmpty(address);
     if (amiga.zorro || amiga.clock) {
       const { zorro, clock } = amiga;
@@ -217,6 +218,8 @@ export class AmigaBus implements M68kBus {
       this.ciaWrite(address, value, false);
     } else if (amiga.gayle?.handles(address)) {
       amiga.gayle.write16(address, value);
+    } else if (amiga.scsi && A3000Scsi.handles(address)) {
+      amiga.scsi.write16(address, value);
     } else {
       this.expansionWrite(address, value, false);
     }
@@ -247,6 +250,8 @@ export class AmigaBus implements M68kBus {
       this.ciaWrite(address, value, true);
     } else if (amiga.gayle?.handles(address)) {
       amiga.gayle.write8(address, value);
+    } else if (amiga.scsi && A3000Scsi.handles(address)) {
+      amiga.scsi.write8(address, value);
     } else {
       this.expansionWrite(address, value, true);
     }

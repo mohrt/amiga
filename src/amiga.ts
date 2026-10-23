@@ -6,6 +6,7 @@ import { Denise } from './denise/denise';
 import type { FloppyDisk } from './drive/adf';
 import { FloppyDrive } from './drive/floppy';
 import { A4000Ide } from './ide/a4000-ide';
+import { A3000Scsi } from './scsi/sdmac';
 import { Gayle } from './ide/gayle';
 import type { HardDiskImage } from './ide/image';
 import { RealTimeClock } from './io/clock';
@@ -54,11 +55,13 @@ export class Amiga {
   slow = new Uint8Array(DEFAULT_MEMORY.slowKb * 1024);
   /** A Zorro II fast RAM board, if there is one. */
   zorro: ZorroRam | null = null;
-  /** The A4000's 32-bit fast RAM on its main board, which Ramsey puts just below $8000000. */
+  /** The A3000's and A4000's 32-bit fast RAM on the main board, which Ramsey puts just below $8000000. */
   motherboardRam = new Uint8Array(0);
-  /** Gary's timeout, timeout-enable and cold-boot bits, and Ramsey's control register (A4000). */
+  /** Gary's timeout, timeout-enable and cold-boot bits, and Ramsey's control register (A3000 and A4000). */
   readonly gary = new Uint8Array(3);
   ramseyControl = 0;
+  /** The A3000's SCSI controller. */
+  scsi: A3000Scsi | null = null;
   /** The battery-backed clock of the models that have one. */
   clock: RealTimeClock | null = null;
   /** The Kickstart, filling the 512K at $F80000 (a 256K ROM twice). */
@@ -96,7 +99,7 @@ export class Amiga {
         return amiga.diskDma;
       },
       indexPulse: () => this.ciaB.pulseFlag(),
-      heldInterrupts: () => (this.ciaA.interrupt ? Int.PORTS : 0) | (this.ciaB.interrupt ? Int.EXTER : 0),
+      heldInterrupts: () => (this.ciaA.interrupt || this.scsi?.interrupting ? Int.PORTS : 0) | (this.ciaB.interrupt ? Int.EXTER : 0),
     });
     this.agnus = new Agnus(this.chip, this.denise, {
       writeRegister: (reg, value) => this.writeCustom(reg, value),
@@ -104,6 +107,7 @@ export class Amiga {
         this.ciaB.countEvent();
         this.keyboard.tick();
         this.gayle?.tick();
+        this.scsi?.tick();
       },
       onFrame: () => {
         this.ciaA.countEvent();
@@ -139,7 +143,7 @@ export class Amiga {
     return this.agnus.standard;
   }
 
-  /** CPU cycles per colour clock: the 68000 runs at twice the colour clock, the A1200's 68EC020 at four times, the A4000's 68030 at seven (25 MHz). */
+  /** CPU cycles per colour clock: the 68000 runs at twice the colour clock, the A1200's 68EC020 at four times, the 68030 at seven (25 MHz). */
   get cpuRatio(): number {
     return CPU_RATIO[this.model.cpu];
   }
@@ -207,13 +211,14 @@ export class Amiga {
     this.denise.aga = aga;
     this.clock = model.clock ? (this.clock ?? new RealTimeClock()) : null;
     if (this.gayle instanceof Gayle) this.gayle.aga = aga;
+    this.scsi = model.scsi ? (this.scsi ?? new A3000Scsi()) : null;
   }
 
   setMemory(config: MemoryConfig): void {
     this.chip.resize(config.chipKb * 1024);
     if (this.slow.length !== config.slowKb * 1024) this.slow = new Uint8Array(config.slowKb * 1024);
-    // The A4000's fast RAM is on its main board; the others' is on a Zorro II board.
-    const onBoard = this.model.cpu === '68030';
+    // The A3000's and A4000's fast RAM is on the main board; the others' is on a Zorro II board.
+    const onBoard = this.model.ramsey !== undefined;
     const boardKb = onBoard ? 0 : config.fastKb;
     if ((this.zorro?.bytes.length ?? 0) !== boardKb * 1024) this.zorro = boardKb ? new ZorroRam(boardKb) : null;
     const mainKb = onBoard ? config.fastKb : 0;
@@ -247,7 +252,7 @@ export class Amiga {
   /** Attaches a hard disk on an A600-style IDE port (null takes it away); Kickstart looks for it at power on. */
   attachHardDisk(image: HardDiskImage | null): void {
     const raisePorts = () => this.paula.raise(Int.PORTS);
-    if (!image) this.gayle = null;
+    if (!image || this.model.ide === 'none') this.gayle = null;
     else if (this.model.ide === 'a4000') this.gayle = new A4000Ide(image, raisePorts);
     else {
       const gayle = new Gayle(image, raisePorts);
@@ -297,6 +302,7 @@ export class Amiga {
     this.paula.reset();
     this.agnus.reset();
     this.gayle?.reset();
+    this.scsi?.reset();
     this.zorro?.reset();
     this.eClock = CCKS_PER_E_TICK;
   }

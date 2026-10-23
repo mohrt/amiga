@@ -148,6 +148,13 @@ describe('real Kickstarts from roms/', () => {
     expect(suitsModel(rom, modelById('a1200'))).toBe(false);
   });
 
+  it.skipIf(!real('kick31-a3000.rom'))('takes the A3000\'s Kickstart for the A3000 only', () => {
+    const rom = identifyKickstart('kick31-a3000.rom', real('kick31-a3000.rom')!);
+    expect(rom.title).toBe('Kickstart 3.1 (40.68, A3000)');
+    expect(suitsModel(rom, modelById('a3000'))).toBe(true);
+    expect(suitsModel(rom, modelById('a4000'))).toBe(false);
+  });
+
   it.skipIf(!real('kick31-cd32.rom'))('turns away the Kickstarts of models not emulated yet', () => {
     expect(() => identifyKickstart('kick31-cd32.rom', real('kick31-cd32.rom')!)).toThrow(/CD32/);
   });

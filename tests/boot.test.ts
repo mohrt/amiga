@@ -35,6 +35,7 @@ const MODEL_BOOTS = [
   ['a600', 'kick31.rom', { chipKb: 2048, slowKb: 0, fastKb: 0 }],
   ['a1200', 'kick31-a1200.rom', { chipKb: 2048, slowKb: 0, fastKb: 4096 }],
   ['a1200', 'kick30-a1200.rom', { chipKb: 2048, slowKb: 0, fastKb: 0 }],
+  ['a3000', 'kick31-a3000.rom', { chipKb: 1024, slowKb: 0, fastKb: 4096 }],
   ['a4000', 'kick31-a4000.rom', { chipKb: 2048, slowKb: 0, fastKb: 8192 }],
 ] as const;
 
@@ -102,19 +103,20 @@ function peeker(amiga: Amiga): (address: number) => number {
 }
 
 const WORKBENCH_MACHINES = [
-  ['a1200', 'kick31-a1200.rom', 4096, 0x200000],
-  ['a4000', 'kick31-a4000.rom', 8192, 0x7800000],
+  ['a1200', 'kick31-a1200.rom', 2048, 4096, 0x200000],
+  ['a3000', 'kick31-a3000.rom', 1024, 4096, 0x7c00000],
+  ['a4000', 'kick31-a4000.rom', 2048, 8192, 0x7800000],
 ] as const;
 
-describe('Workbench on the AGA Amigas', () => {
-  for (const [id, file, fastKb, fastStart] of WORKBENCH_MACHINES) {
+describe('Workbench 3.1 on the Kickstart 3.1 Amigas', () => {
+  for (const [id, file, chipKb, fastKb, fastStart] of WORKBENCH_MACHINES) {
     const rom = localKickstart(file);
     const model = modelById(id);
     it.skipIf(!rom || !existsSync(WORKBENCH_ZIP))(`starts Workbench 3.1 from its disk on the ${model.name}, with fast RAM`, async () => {
       const [entry] = readZip(new Uint8Array(readFileSync(WORKBENCH_ZIP)));
       const amiga = new Amiga();
       amiga.setModel(model);
-      amiga.setMemory({ chipKb: 2048, slowKb: 0, fastKb });
+      amiga.setMemory({ chipKb, slowKb: 0, fastKb });
       amiga.setKickstart(rom!);
       amiga.powerOn();
       amiga.insertDisk(0, FloppyDisk.fromAdf(await entry.read(), 'Workbench3.1'));
@@ -139,8 +141,10 @@ describe('Workbench on the AGA Amigas', () => {
       for (let node = peek32(execBase + EXEC_LIB_LIST); peek32(node) !== 0; node = peek32(node)) {
         if (name(peek32(node + 10)) === 'graphics.library') gfxBase = node;
       }
+      // graphics.library found Alice and Lisa (ChipRevBits0's AA bits) on the AGA Amigas, so it offers the AGA screen modes.
       const chipRevBits = peek16(gfxBase + GFX_CHIP_REV_BITS) >> 8;
-      expect(chipRevBits & (GFXF_AA_ALICE | GFXF_AA_LISA)).toBe(GFXF_AA_ALICE | GFXF_AA_LISA);
+      const aga = chipRevBits & (GFXF_AA_ALICE | GFXF_AA_LISA);
+      expect(aga, 'AGA found').toBe(model.chipset === 'aga' ? GFXF_AA_ALICE | GFXF_AA_LISA : 0);
       // Exec found the CPU and put the fast RAM in its memory list.
       const cpuFlags = peek16(execBase + EXEC_ATTN_FLAGS);
       expect(cpuFlags & AFF_68020, '68020 found').toBe(AFF_68020);
