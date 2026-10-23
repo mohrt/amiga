@@ -13,13 +13,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#111111" />
-    <title>Amiga 500</title>
+    <title>Amiga</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <main>
       <div class="screen-frame">
-        <canvas id="screen" width="720" height="568" tabindex="0" aria-label="Amiga 500 screen"></canvas>
+        <canvas id="screen" width="720" height="568" tabindex="0" aria-label="Amiga screen"></canvas>
         <p class="paused-label">Paused</p>
         <p class="mouse-label" hidden>Click the screen to use the mouse; Esc lets it go</p>
         <section id="rom-setup" class="rom-setup" aria-labelledby="rom-setup-title" hidden>
@@ -33,8 +33,8 @@
             <li data-rom="kickstart">
               <p class="rom-heading"><strong>Kickstart ROM</strong> <span class="rom-need">Required</span></p>
               <p class="rom-detail">
-                Kickstart 1.3 is the A500's own and runs the most games; 1.2, 2.04 and 3.1 for the A500 work too. 256 KB
-                (1.2 and 1.3) or 512 KB (2.04 and later). Amiga Forever's encrypted ROMs work with their
+                <span class="model-rom-hint">Kickstart 1.3 runs the most A500 games; 1.2, 2.04 and 3.1 for the A500 work too.</span>
+                256 KB (1.2 and 1.3) or 512 KB (2.04 and later). Amiga Forever's encrypted ROMs work with their
                 <code>rom.key</code>, and so do byte-swapped dumps and dumps of the two ROM chips.
               </p>
               <p class="rom-names">
@@ -57,7 +57,7 @@
           </ul>
           <p class="rom-tip">
             Pick the files, or a .zip containing them. A whole ROM collection works too: the newest Kickstart for the
-            A500 in it is used, and you can switch to the others. Cloanto's
+            model in it is used, and you can switch to the others. Cloanto's
             <a href="https://www.amigaforever.com/" target="_blank" rel="noopener">Amiga Forever</a> sells them
             licensed, and the retrobios collection keeps Kickstart 1.3 as <code>amiga-os-130.rom</code> and 3.1 as
             <code>kick31.rom</code> (not <code>amiga-os-310.rom</code>, which is for later Amigas) in its
@@ -68,6 +68,10 @@
             <h2>Machine</h2>
             <p class="setup-row">
               <label>
+                Model
+                <select name="model" aria-label="Amiga model"></select>
+              </label>
+              <label>
                 TV
                 <select name="tv" aria-label="TV standard">
                   <option value="pal" selected>PAL (50 Hz)</option>
@@ -76,11 +80,7 @@
               </label>
               <label>
                 Memory
-                <select name="memory" aria-label="Memory">
-                  <option value="512+512" selected>512K chip + 512K slow</option>
-                  <option value="512">512K chip only</option>
-                  <option value="1024">1MB chip</option>
-                </select>
+                <select name="memory" aria-label="Memory"></select>
               </label>
               <label><input type="checkbox" name="external-drive" /> External drive DF1</label>
             </p>
@@ -88,7 +88,7 @@
           <div class="setup-section">
             <h2>Hard drive</h2>
             <p class="setup-row">
-              <label title="An IDE hard drive on an A600-style port, which Kickstart 2.05 and 3.1 have a driver for">
+              <label title="An IDE hard drive on the A600's port (added on for the other models), which Kickstart 2.05 and 3.1 have a driver for">
                 <input type="checkbox" name="hard-drive" /> IDE hard drive (DH0)
               </label>
               <span class="hd-status"></span>
@@ -289,7 +289,7 @@
         <a href="https://mohrt.github.io/appleiigs/">Apple IIgs</a>
         <a href="https://mohrt.github.io/sz81/">Timex Sinclair 1000</a>
         <a href="https://mohrt.github.io/c64/">Commodore 64</a>
-        <strong aria-current="page">Amiga 500</strong>
+        <strong aria-current="page">Amiga</strong>
         <a href="https://mohrt.github.io/ibmps2/">IBM PS/2</a>
         <a href="https://mohrt.github.io/pentiumpc/">Pentium PC</a>
         <a href="https://mohrt.github.io/atari2600/">Atari 2600</a>
@@ -303,7 +303,7 @@
       </nav>
       <footer class="site-links">
         <a href="https://mohrt.com/">mohrt.com</a>
-        <a href="https://github.com/mohrt/amiga500" target="_blank" rel="noopener">Source on GitHub</a>
+        <a href="https://github.com/mohrt/amiga" target="_blank" rel="noopener">Source on GitHub</a>
         <a href="https://x.com/mohrt" target="_blank" rel="noopener">@mohrt on X</a>
       </footer>
     </main>

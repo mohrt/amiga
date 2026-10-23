@@ -17,7 +17,8 @@ import { SaveStates, decodeSession, encodeSession, type SaveStateRecord, type Se
 import { memoryStores, openBrowserStores, type KeyValueStore } from './storage/store';
 import { DiskPanel } from './ui/disk-panel';
 import { downloadFile } from './ui/download';
-import { DEFAULT_CHOICES, MEMORY_CHOICES, askForMachine, type MachineChoices, type MachineSetup } from './ui/machine-setup';
+import { DEFAULT_CHOICES, askForMachine, memoryLabel, modelMemory, type MachineChoices, type MachineSetup } from './ui/machine-setup';
+import { memoryByKey, modelById } from './models';
 import { JsonRecord, Settings } from './ui/settings';
 import { attachToolbar } from './ui/toolbar';
 import { crc32 } from './util/crc32';
@@ -43,10 +44,14 @@ const DRIVES = 2;
 function rememberedChoices(record: JsonRecord<MachineChoices>, settings: Settings): MachineChoices {
   const older: Partial<MachineChoices> = {};
   if (settings.get('tv') === 'ntsc') older.standard = 'ntsc';
-  const memory = MEMORY_CHOICES[String(settings.get('memory'))];
-  if (memory) older.memory = memory;
+  const olderKey = settings.get('memory');
+  if (typeof olderKey === 'string') older.memory = memoryByKey(modelById('a500'), olderKey);
   if (settings.get('external-drive') === true) older.externalDrive = true;
-  return { ...DEFAULT_CHOICES, ...older, ...record.read() };
+  const choices = { ...DEFAULT_CHOICES, ...older, ...record.read() };
+  // Earlier choices had no model (an A500) and no fast RAM.
+  const model = modelById(choices.model);
+  const memory: MemoryConfig = { ...choices.memory, fastKb: choices.memory.fastKb ?? 0 };
+  return { ...choices, model: model.id, memory: modelMemory(model, memory) };
 }
 
 const megabytes = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`;
@@ -59,8 +64,6 @@ function requireElement<T extends HTMLElement>(selector: string): T {
 
 const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'amiga';
 
-const memoryLabel = (memory: MemoryConfig) =>
-  `${memory.chipKb === 1024 ? '1MB' : '512K'} chip${memory.slowKb ? ` + ${memory.slowKb}K slow` : ''}`;
 
 /** A line about a disk: what kind it is, from its first sectors. */
 function describeDisk(disk: FloppyDisk): string {
@@ -151,13 +154,14 @@ async function main(): Promise<void> {
     const focusScreen = () => canvas.focus();
 
     const updateStatus = () => {
-      const parts = [kickstart!.title, amiga.standard.toUpperCase(), memoryLabel(amiga.memory)];
+      const parts = [amiga.model.name, kickstart!.title, amiga.standard.toUpperCase(), memoryLabel(amiga.memory)];
       if (amiga.drives[1].connected) parts.push('DF1');
       if (amiga.gayle) parts.push(`DH0 ${megabytes(amiga.gayle.drive.image.bytes.length)}`);
       status.textContent = parts.join(' · ');
     };
 
     const applyMachine = (choices: MachineChoices) => {
+      amiga.setModel(modelById(choices.model));
       amiga.setStandard(choices.standard);
       screen.setStandard(choices.standard);
       amiga.setMemory(choices.memory);
@@ -239,6 +243,7 @@ async function main(): Promise<void> {
         machine: amiga.saveState(),
         kickstartCrc,
         kickstartTitle: kickstart!.title,
+        model: amiga.model.id,
         standard: amiga.standard,
         memory: amiga.memory,
         externalDrive: amiga.drives[1].connected,
@@ -252,7 +257,13 @@ async function main(): Promise<void> {
         throw new Error(`That state was saved with ${session.kickstartTitle}; load that Kickstart (Machine setup...) to use it.`);
       }
       await persistAll();
-      choices = { ...choices, standard: session.standard, memory: session.memory as MemoryConfig, externalDrive: session.externalDrive };
+      choices = {
+        ...choices,
+        model: modelById(session.model).id,
+        standard: session.standard,
+        memory: { ...session.memory, fastKb: session.memory.fastKb ?? 0 } as MemoryConfig,
+        externalDrive: session.externalDrive,
+      };
       machineRecord.write(choices);
       applyMachine(choices);
       session.disks.forEach((saved, drive) => {

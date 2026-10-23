@@ -10,8 +10,10 @@ import {
   kickstartChecksumOk,
   preferredKickstart,
   rankKickstarts,
+  suitsModel,
   type StoredRom,
 } from '../src/roms/system-roms';
+import { modelById } from '../src/models';
 import { MemoryStore } from '../src/storage/store';
 import { localRoms } from './helpers/machine';
 
@@ -119,6 +121,28 @@ describe('real Kickstarts from roms/', () => {
     expect((await store.load())?.title).toBe('Kickstart 3.1 (40.63, A500/A600/A2000)');
     await store.forget();
     expect(await store.loadChoices()).toEqual([]);
+  });
+
+  it.skipIf(!real('kick31.rom') || !real('kick31-a1200.rom') || !real('kick30-a1200.rom'))('picks the A1200\'s own Kickstart for an A1200, and an A500 one otherwise', () => {
+    const roms = ['kick31.rom', 'kick30-a1200.rom', 'kick31-a1200.rom'].map((name) => identifyKickstart(name, real(name)!));
+    const a1200 = modelById('a1200');
+    expect(roms[2].title).toBe('Kickstart 3.1 (40.68, A1200)');
+    expect(roms[2].requires).toBe('a1200');
+    expect(suitsModel(roms[2], modelById('a500'))).toBe(false);
+    expect(suitsModel(roms[0], a1200)).toBe(true);
+    expect(preferredKickstart(roms).title).toBe('Kickstart 3.1 (40.63, A500/A600/A2000)');
+    expect(preferredKickstart(roms, a1200).title).toBe('Kickstart 3.1 (40.68, A1200)');
+    expect(rankKickstarts(roms, a1200).map((rom) => rom.title)).toEqual([
+      'Kickstart 3.1 (40.68, A1200)',
+      'Kickstart 3.0 (39.106, A1200)',
+      'Kickstart 3.1 (40.63, A500/A600/A2000)',
+    ]);
+    // With only the A1200's ROMs, an A500 still gets one (Machine setup then switches the model).
+    expect(preferredKickstart(roms.slice(1), modelById('a500')).requires).toBe('a1200');
+  });
+
+  it.skipIf(!real('kick31-a4000.rom'))('turns away the Kickstarts of models not emulated yet', () => {
+    expect(() => identifyKickstart('kick31-a4000.rom', real('kick31-a4000.rom')!)).toThrow(/A4000/);
   });
 
   it.skipIf(!real('kick13-overdump.rom'))('recognises an overdump of it', () => {

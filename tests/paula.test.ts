@@ -26,19 +26,39 @@ function samples(amiga: Amiga, frames: number): Float32Array {
 describe('Paula interrupts', () => {
   it('turns INTREQ and INTENA into the CPU interrupt level', () => {
     const amiga = idleMachine();
+    const write = (reg: number, value: number) => {
+      amiga.writeCustom(reg, value);
+      amiga.agnus.step();
+    };
+    write(0x09c, 0x7fff);
+    write(0x09a, 0x7fff);
+    write(0x09c, 0x8000 | Int.VERTB);
+    expect(amiga.paula.level).toBe(0);
+    write(0x09a, 0x8000 | Int.INTEN | Int.VERTB | Int.PORTS | Int.EXTER);
+    expect(amiga.paula.level).toBe(3);
+    write(0x09c, 0x8000 | Int.EXTER);
+    expect(amiga.paula.level).toBe(6);
+    write(0x09c, Int.EXTER | Int.VERTB);
+    write(0x09c, 0x8000 | Int.PORTS);
+    expect(amiga.paula.level).toBe(2);
+    write(0x09a, Int.INTEN);
+    expect(amiga.paula.level).toBe(0);
+  });
+
+  it('takes a write to INTREQ in the next cycle, and the CPU sees the new level three cycles after that', () => {
+    const amiga = idleMachine();
     amiga.writeCustom(0x09c, 0x7fff);
-    amiga.writeCustom(0x09a, 0x7fff);
+    amiga.agnus.runTo(amiga.agnus.clock + 4);
+    amiga.writeCustom(0x09a, 0x8000 | Int.INTEN | Int.VERTB);
     amiga.writeCustom(0x09c, 0x8000 | Int.VERTB);
-    expect(amiga.cpu.irqLevel).toBe(0);
-    amiga.writeCustom(0x09a, 0x8000 | Int.INTEN | Int.VERTB | Int.PORTS | Int.EXTER);
+    expect(amiga.paula.intreq & Int.VERTB).toBe(0);
+    amiga.agnus.step();
+    expect(amiga.paula.level).toBe(3);
+    for (let cycle = 0; cycle < 3; cycle++) {
+      expect(amiga.cpu.irqLevel).toBe(0);
+      amiga.agnus.step();
+    }
     expect(amiga.cpu.irqLevel).toBe(3);
-    amiga.writeCustom(0x09c, 0x8000 | Int.EXTER);
-    expect(amiga.cpu.irqLevel).toBe(6);
-    amiga.writeCustom(0x09c, Int.EXTER | Int.VERTB);
-    amiga.writeCustom(0x09c, 0x8000 | Int.PORTS);
-    expect(amiga.cpu.irqLevel).toBe(2);
-    amiga.writeCustom(0x09a, Int.INTEN);
-    expect(amiga.cpu.irqLevel).toBe(0);
   });
 
   it('raises PORTS for CIA-A and EXTER for CIA-B', () => {
@@ -78,6 +98,8 @@ describe('Paula sound', () => {
     amiga.writeCustom(0x09c, 0x7fff);
     // 8 words of 2 bytes at 200 colour clocks each: 3200 per cycle, about 1108 Hz.
     playSquare(amiga, 0, 200);
+    // DMACON takes the write two cycles later, and the channel's request reaches INTREQ a cycle after it starts.
+    amiga.agnus.runTo(amiga.agnus.clock + 4);
     expect(amiga.paula.intreq & Int.AUD0).toBe(Int.AUD0);
     amiga.writeCustom(0x09c, Int.AUD0);
     const output = samples(amiga, 10);

@@ -1,8 +1,9 @@
 import { AtaDrive } from './ata';
 import type { HardDiskImage } from './image';
 
-/** Gayle's ID on an A600; Kickstart reads it a bit at a time from bit 7 of $DE1000. */
+/** Gayle's ID, $D0 on an A600 and $D1 on an A1200 (AA Gayle); Kickstart reads it a bit at a time from bit 7 of $DE1000. */
 const GAYLE_ID = 0xd0;
+const AA_GAYLE_ID = 0xd1;
 const IDE_BASE = 0xda2000;
 const IDE_END = 0xda3000;
 /** The alternate status register when read, device control when written. */
@@ -27,6 +28,8 @@ export class Gayle {
   private irq = 0;
   private intena = 0;
   private config = 0;
+  /** The A1200's AA Gayle rather than the A600's. */
+  aga = false;
 
   constructor(
     image: HardDiskImage,
@@ -57,7 +60,8 @@ export class Gayle {
 
   read8(address: number): number {
     if (address >= 0xde1000 && address < 0xde2000) {
-      const bit = this.idBit < 8 ? (GAYLE_ID >> (7 - this.idBit)) & 1 : 0;
+      const id = this.aga ? AA_GAYLE_ID : GAYLE_ID;
+      const bit = this.idBit < 8 ? (id >> (7 - this.idBit)) & 1 : 0;
       this.idBit++;
       return bit << 7;
     }

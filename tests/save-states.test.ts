@@ -51,7 +51,7 @@ describe('save states', () => {
     const list = await states.list();
     expect(list.map((state) => state.name)).toEqual(['second', 'first']);
     expect((await states.load(list[0].id))?.standard).toBe('pal');
-    await expect(decodeSession(new Uint8Array([1, 2, 3]))).rejects.toThrow(/not an Amiga 500 save state/);
+    await expect(decodeSession(new Uint8Array([1, 2, 3]))).rejects.toThrow(/not an Amiga save state/);
   });
 });
 

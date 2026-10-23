@@ -1,6 +1,7 @@
 import type { Amiga } from '../amiga';
 import type { M68kBus } from '../cpu/m68k';
 import { Gayle } from '../ide/gayle';
+import { RealTimeClock } from '../io/clock';
 
 const CHIP_END = 0x200000;
 const SLOW_START = 0xc00000;
@@ -28,23 +29,22 @@ export class AmigaBus implements M68kBus {
   /** Brings the chips up to the CPU's access and waits for a free chip bus cycle. */
   private chipBusCycle(): void {
     const { cpu, agnus } = this.amiga;
-    const at = Math.floor((cpu.cycles - 4) / 2);
+    const ratio = this.amiga.cpuRatio;
+    // The access is two CPU cycles into the four of a 68000 bus cycle.
+    const at = Math.floor((cpu.cycles - 2) / ratio);
     if (at > agnus.clock) agnus.runTo(at);
-    else if (at < agnus.clock) cpu.cycles += (agnus.clock - at) * 2;
-    while (agnus.cpuBlocked()) {
-      agnus.cpuWaits++;
-      agnus.step();
-      cpu.cycles += 2;
-    }
-    agnus.cpuWaits = 0;
-    agnus.cpuSlot = agnus.clock;
+    else if (at < agnus.clock) cpu.cycles += (agnus.clock - at) * ratio;
+    cpu.cycles += agnus.cpuAccess() * ratio;
   }
 
   /** CIA accesses are synchronised to the E clock (a tenth of the CPU's). */
   private ciaCycle(): void {
     const { cpu, agnus } = this.amiga;
-    cpu.cycles += 4 + ((10 - (cpu.cycles % 10)) % 10);
-    agnus.runTo(Math.floor(cpu.cycles / 2));
+    // The E clock is a tenth of the 68000's clock (a twentieth of the 68EC020's).
+    const ratio = this.amiga.cpuRatio;
+    const period = 5 * ratio;
+    cpu.cycles += 2 * ratio + ((period - (cpu.cycles % period)) % period);
+    agnus.runTo(Math.floor(cpu.cycles / ratio));
   }
 
   private ciaRead(address: number): number {
@@ -95,7 +95,28 @@ export class AmigaBus implements M68kBus {
       return (amiga.extendedRom[a] << 8) | amiga.extendedRom[a + 1];
     }
     if (amiga.gayle && Gayle.handles(address)) return amiga.gayle.read16(address);
-    return 0;
+    return this.expansionRead(address, false);
+  }
+
+  /** The fast RAM board (or its autoconfig space) and the clock, which aren't on the chip bus. */
+  private expansionRead(address: number, byte: boolean): number {
+    const { zorro, clock } = this.amiga;
+    if (zorro?.holds(address)) return byte ? zorro.read8(address) : zorro.read16(address);
+    if (zorro?.configures(address)) return byte ? zorro.readConfig(address) : (zorro.readConfig(address) << 8) | 0xff;
+    if (clock && RealTimeClock.handles(address)) return clock.read(address);
+    return byte ? 0xff : 0;
+  }
+
+  private expansionWrite(address: number, value: number, byte: boolean): void {
+    const { zorro, clock } = this.amiga;
+    if (zorro?.holds(address)) {
+      if (byte) zorro.write8(address, value);
+      else zorro.write16(address, value);
+    } else if (zorro?.configures(address)) {
+      zorro.writeConfig(address, byte ? value : value >> 8);
+    } else if (clock && RealTimeClock.handles(address)) {
+      clock.write(address, value);
+    }
   }
 
   read8(address: number): number {
@@ -115,6 +136,10 @@ export class AmigaBus implements M68kBus {
       return address & 1 ? word & 0xff : word >> 8;
     }
     if (amiga.gayle && Gayle.handles(address)) return amiga.gayle.read8(address);
+    if (amiga.zorro || amiga.clock) {
+      const { zorro, clock } = amiga;
+      if (zorro?.holds(address) || zorro?.configures(address) || (clock && RealTimeClock.handles(address))) return this.expansionRead(address, true);
+    }
     const word = this.read16(address & ~1);
     return address & 1 ? word & 0xff : word >> 8;
   }
@@ -136,6 +161,8 @@ export class AmigaBus implements M68kBus {
       this.ciaWrite(address, value, false);
     } else if (amiga.gayle && Gayle.handles(address)) {
       amiga.gayle.write16(address, value);
+    } else {
+      this.expansionWrite(address, value, false);
     }
   }
 
@@ -155,6 +182,8 @@ export class AmigaBus implements M68kBus {
       this.ciaWrite(address, value, true);
     } else if (amiga.gayle && Gayle.handles(address)) {
       amiga.gayle.write8(address, value);
+    } else {
+      this.expansionWrite(address, value, true);
     }
   }
 

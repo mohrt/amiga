@@ -29,16 +29,24 @@ const VECTOR_LINE_A = 10;
 const VECTOR_LINE_F = 11;
 const VECTOR_AUTOVECTOR = 24;
 const VECTOR_TRAP = 32;
+/** Bytes a 68020 exception frame has after its format word, by format (0 and 1 have none). */
+const FRAME_EXTRA_BYTES: Record<number, number> = { 2: 4, 9: 12, 10: 24, 11: 84 };
 
 /** Exception processing after an instruction's own time: the internal steps around the stacking and vector fetch. */
 const EXCEPTION_INTERNAL = 10;
-/** An interrupt takes 44 cycles: 12 stacking, 8 vector fetch, the rest acknowledging and refilling the prefetch. */
-const INTERRUPT_INTERNAL = 24;
+/**
+ * An interrupt takes 44 cycles: 6, the PC's low word stacked, 8 acknowledging, the SR and the PC's
+ * high word stacked, the vector read, then the handler's first two words fetched with 2 between.
+ */
+const INTERRUPT_BEFORE_STACKING = 6;
+const INTERRUPT_ACKNOWLEDGE = 8;
+const INTERRUPT_BETWEEN_PREFETCHES = 2;
 /** An address error takes 50 cycles. */
 const ADDRESS_ERROR_INTERNAL = 22;
 
 const signed8 = (value: number) => ((value & 0xff) ^ 0x80) - 0x80;
 const signed16 = (value: number) => ((value & 0xffff) ^ 0x8000) - 0x8000;
+const sizedSigned = (value: number, size: Size) => (size === 1 ? signed8(value) : size === 2 ? signed16(value) : value | 0);
 const wrap = (value: number, size: Size) => (size === 4 ? value >>> 0 : value & MASK[size]);
 
 /** Thrown (as a singleton) when a word or long access goes to an odd address; `step` turns it into the exception. */
@@ -80,6 +88,8 @@ export class M68k {
   stopped = false;
   /** The interrupt level asserted by the machine (0 for none). */
   irqLevel = 0;
+  /** The level as the CPU last sampled it, which decides whether it takes an interrupt before the next instruction. */
+  polledIrqLevel = 0;
   /** Cycles run since power on. */
   cycles = 0;
   /** Address errors taken since power on (the tests skip those, whose stack frames are not modelled exactly). */
@@ -90,19 +100,42 @@ export class M68k {
   private instructionPc = 0;
   /** The address of the last memory operand read, for read-modify-write instructions. */
   private ea = 0;
+  /** The 68EC020's registers: the vector base, the cache control and address, and the function codes MOVES uses. */
+  vbr = 0;
+  cacr = 0;
+  caar = 0;
+  sfc = 0;
+  dfc = 0;
+  /** The 68020's master stack pointer (the M bit isn't used to switch to it here). */
+  msp = 0;
+  /** The SR's M bit (68020). */
+  private master = false;
   /** The address and direction of an access that faulted. */
   private faultAddress = 0;
   private faultRead = true;
   private faultInstruction = false;
 
+  /** The instruction table: the 68000's, or the 68EC020's. */
+  private table: Handler[] = OPCODES;
+  /** A 68EC020 (as the A1200's): 32-bit operations and addressing, a vector base, and word and long accesses at odd addresses. */
+  is020 = false;
+
   constructor(private readonly bus: M68kBus) {}
+
+  /** Makes this a 68000 or a 68EC020 (for the next reset). */
+  setModel(is020: boolean): void {
+    this.is020 = is020;
+    this.table = is020 ? OPCODES_020 : OPCODES;
+  }
 
   /** The reset sequence: supervisor mode, interrupts masked, the stack pointer and PC from the vector table. */
   reset(): void {
     this.supervisor = true;
     this.trace = false;
+    this.master = false;
     this.intMask = 7;
     this.stopped = false;
+    this.vbr = this.cacr = 0;
     this.a[7] = this.read32(0);
     this.pc = this.read32(4);
     this.cycles += 132 - 16;
@@ -112,6 +145,7 @@ export class M68k {
     return (
       (this.trace ? 0x8000 : 0) |
       (this.supervisor ? 0x2000 : 0) |
+      (this.master ? 0x1000 : 0) |
       (this.intMask << 8) |
       (this.x ? 0x10 : 0) |
       (this.n ? 0x08 : 0) |
@@ -123,6 +157,7 @@ export class M68k {
 
   set sr(value: number) {
     this.trace = (value & 0x8000) !== 0;
+    this.master = this.is020 && (value & 0x1000) !== 0;
     this.intMask = (value >> 8) & 7;
     this.ccr = value;
     this.setSupervisor((value & 0x2000) !== 0);
@@ -167,8 +202,8 @@ export class M68k {
     const start = this.cycles;
     const tracing = this.trace;
     try {
-      if (this.irqLevel > this.intMask) {
-        this.interrupt(this.irqLevel);
+      if (this.polledIrqLevel > this.intMask) {
+        this.interrupt(this.polledIrqLevel);
         return this.cycles - start;
       }
       if (this.stopped) {
@@ -178,7 +213,7 @@ export class M68k {
       this.instructionPc = this.pc;
       const op = this.fetch16();
       this.ir = op;
-      OPCODES[op].call(this, op);
+      this.table[op].call(this, op);
       if (tracing) this.exception(VECTOR_TRACE, this.pc, 0);
     } catch (error) {
       if (error !== ADDRESS_ERROR) throw error;
@@ -202,7 +237,10 @@ export class M68k {
   }
 
   private read16(address: number): number {
-    if (address & 1) this.fault(address, true, false);
+    if (address & 1) {
+      if (this.is020) return (this.read8(address) << 8) | this.read8(address + 1);
+      this.fault(address, true, false);
+    }
     this.cycles += 4;
     return this.bus.read16(address & 0xffffff);
   }
@@ -218,7 +256,14 @@ export class M68k {
   }
 
   private write16(address: number, value: number): void {
-    if (address & 1) this.fault(address, false, false);
+    if (address & 1) {
+      if (this.is020) {
+        this.write8(address, value >> 8);
+        this.write8(address + 1, value);
+        return;
+      }
+      this.fault(address, false, false);
+    }
     this.cycles += 4;
     this.bus.write16(address & 0xffffff, value & 0xffff);
   }
@@ -252,6 +297,16 @@ export class M68k {
     this.cycles += 4;
     this.pc = (pc + 2) >>> 0;
     return this.bus.read16(pc & 0xffffff);
+  }
+
+  /**
+   * A prefetch read whose word this core doesn't use: refilling the queue after a jump reads the
+   * target's first word, which the next instruction fetches again as its opcode here.
+   */
+  private prefetchRead(address: number): void {
+    if (address & 1) return;
+    this.cycles += 4;
+    this.bus.read16(address & 0xffffff);
   }
 
   private fetch32(): number {
@@ -340,7 +395,31 @@ export class M68k {
     const reg = (extension >> 12) & 7;
     let index = extension & 0x8000 ? this.a[reg] : this.d[reg];
     if (!(extension & 0x0800)) index = signed16(index);
-    return (base + signed8(extension) + index) >>> 0;
+    if (!this.is020) return (base + signed8(extension) + index) >>> 0;
+    // The 68020 scales the index, and bit 8 marks the full format.
+    index = Math.imul(index, 1 << ((extension >> 9) & 3));
+    if (!(extension & 0x100)) return (base + signed8(extension) + index) >>> 0;
+    return this.fullIndexed(base, extension, index);
+  }
+
+  /**
+   * The 68020's full extension format: a base displacement, the base and index each possibly
+   * suppressed, and memory indirection with the index added before or after it and an outer
+   * displacement.
+   */
+  private fullIndexed(base: number, extension: number, index: number): number {
+    if (extension & 0x80) base = 0;
+    if (extension & 0x40) index = 0;
+    const displacement = (sizeCode: number) => (sizeCode === 2 ? signed16(this.fetch16()) : sizeCode === 3 ? this.fetch32() | 0 : 0);
+    const baseDisplacement = displacement((extension >> 4) & 3);
+    const indirect = extension & 7;
+    this.cycles += 4;
+    if (indirect === 0) return (base + baseDisplacement + index) >>> 0;
+    const postIndexed = (extension & 0x40) === 0 && (indirect & 4) !== 0;
+    const pointerAt = (base + baseDisplacement + (postIndexed ? 0 : index)) >>> 0;
+    const pointer = this.read32(pointerAt);
+    const outer = displacement(indirect & 3);
+    return (pointer + (postIndexed ? index : 0) + outer) >>> 0;
   }
 
   /** Reads an operand of any addressing mode; memory operands leave their address in `ea` for a write back. */
@@ -461,9 +540,20 @@ export class M68k {
     this.setSupervisor(true);
     this.trace = false;
     this.cycles += internal;
+    if (this.is020) {
+      // Format 2 (with the instruction's address) for the traps an instruction raises, format 0 for the rest.
+      const format2 = vector === VECTOR_CHK || vector === VECTOR_TRAPV || vector === VECTOR_ZERO_DIVIDE || vector === VECTOR_TRACE;
+      if (format2) this.push32(this.instructionPc);
+      this.push16((format2 ? 0x2000 : 0) | (vector * 4));
+    }
     this.push32(pushedPc);
     this.push16(sr);
-    this.jump(this.read32(vector * 4));
+    this.jump(this.read32(this.vectorAddress(vector)));
+  }
+
+  /** Where a vector is: from the 68020's vector base. */
+  private vectorAddress(vector: number): number {
+    return ((this.is020 ? this.vbr : 0) + vector * 4) >>> 0;
   }
 
   private interrupt(level: number): void {
@@ -472,11 +562,21 @@ export class M68k {
     this.setSupervisor(true);
     this.trace = false;
     this.intMask = level;
-    this.cycles += INTERRUPT_INTERNAL;
-    this.push32(this.pc);
-    this.push16(sr);
+    this.polledIrqLevel = 0;
+    this.cycles += INTERRUPT_BEFORE_STACKING;
+    const vector = VECTOR_AUTOVECTOR + level;
+    if (this.is020) this.push16(vector * 4);
+    this.a[7] -= 6;
+    const sp = this.a[7];
+    this.write16(sp + 4, this.pc & 0xffff);
+    this.cycles += INTERRUPT_ACKNOWLEDGE;
     this.bus.acknowledgeInterrupt(level);
-    this.jump(this.read32((VECTOR_AUTOVECTOR + level) * 4));
+    this.write16(sp, sr);
+    this.write16(sp + 2, this.pc >>> 16);
+    this.jump(this.read32(this.vectorAddress(vector)));
+    this.read16(this.pc);
+    this.cycles += INTERRUPT_BETWEEN_PREFETCHES;
+    this.read16(this.pc + 2);
   }
 
   /** The group 0 frame: the access, the opcode and the SR and PC. A second fault while stacking it would halt a real CPU. */
@@ -494,7 +594,7 @@ export class M68k {
       this.push16(this.ir);
       this.push32(this.faultAddress);
       this.push16(status);
-      this.pc = this.read32(VECTOR_ADDRESS_ERROR * 4);
+      this.pc = this.read32(this.vectorAddress(VECTOR_ADDRESS_ERROR));
     } catch (error) {
       if (error !== ADDRESS_ERROR) throw error;
       this.stopped = true;
@@ -880,17 +980,30 @@ export class M68k {
 
   rte(): void {
     if (!this.privileged()) return;
-    const sr = this.pop16();
-    const pc = this.pop32();
-    this.cycles += 4;
-    this.sr = sr;
-    this.jump(pc);
+    for (;;) {
+      const sr = this.pop16();
+      const pc = this.pop32();
+      if (this.is020) {
+        // The 68020's frame says how much more there is to take off the stack.
+        const format = this.pop16() >> 12;
+        this.a[7] += FRAME_EXTRA_BYTES[format] ?? 0;
+        if (format === 1) {
+          // A throwaway frame: the real one follows on the other stack.
+          this.sr = sr;
+          continue;
+        }
+      }
+      this.sr = sr;
+      this.jump(pc);
+      this.prefetchRead(pc);
+      return;
+    }
   }
 
   rts(): void {
     const pc = this.pop32();
-    this.cycles += 4;
     this.jump(pc);
+    this.prefetchRead(pc);
   }
 
   rtr(): void {
@@ -932,44 +1045,50 @@ export class M68k {
 
   dbcc(op: number): void {
     const base = this.pc;
-    const displacement = signed16(this.fetch16());
     if (this.condition((op >> 8) & 15)) {
       this.cycles += 4;
+      this.fetch16();
       return;
     }
     const reg = op & 7;
     const count = (this.d[reg] - 1) & 0xffff;
     this.setD(reg, 2, count);
+    this.cycles += 2;
+    const displacement = signed16(this.fetch16());
     if (count === 0xffff) {
-      this.cycles += 6;
+      // The loop ends: the word after the displacement is read, and the prefetch refilled.
+      this.prefetchRead(this.pc);
       return;
     }
-    this.cycles += 2;
     this.jump(base + displacement);
   }
 
-  /** BRA, BSR and Bcc, with an 8-bit displacement or, when that is 0, a 16-bit one. */
   branch(op: number): void {
     const base = this.pc;
     const condition = (op >> 8) & 15;
     let displacement = signed8(op);
     const long = displacement === 0;
-    if (long) displacement = signed16(this.fetch16());
     if (condition === 1) {
-      this.cycles += long ? 2 : 6;
-      this.push32(this.pc);
+      // BSR: the return address is stacked, then the prefetch refilled from the target.
+      this.cycles += 2;
+      const returnPc = long ? this.pc + 2 : this.pc;
+      this.push32(returnPc);
+      if (long) displacement = signed16(this.fetch16());
+      else this.prefetchRead(base + displacement);
       this.jump(base + displacement);
       return;
     }
     if (this.condition(condition)) {
-      this.cycles += long ? 2 : 6;
+      this.cycles += 2;
+      if (long) displacement = signed16(this.fetch16());
+      else this.prefetchRead(base + displacement);
       this.jump(base + displacement);
     } else {
       this.cycles += 4;
+      if (long) this.fetch16();
     }
   }
 
-  /** OR, AND, ADD and SUB, in both directions: <ea> to Dn (bit 8 clear) or Dn to <ea>. */
   arithmetic(op: number): void {
     const size = SIZE_FIELD[(op >> 6) & 3];
     const mode = (op >> 3) & 7;
@@ -1255,6 +1374,436 @@ export class M68k {
     this.setNZ(result, size);
     return result;
   }
+
+  // --- 68EC020 instructions ---------------------------------------------------------
+
+  /** The 68020 traps MOVE from SR in user mode. */
+  moveFromSr020(op: number): void {
+    if (!this.privileged()) return;
+    this.moveFromSr(op);
+  }
+
+  moveFromCcr(op: number): void {
+    const mode = (op >> 3) & 7;
+    const reg = op & 7;
+    if (mode === 0) this.setD(reg, 2, this.sr & 0xff);
+    else this.writeEa(mode, reg, 2, this.sr & 0xff);
+  }
+
+  /** Bcc, BRA and BSR, with the 68020's 32-bit displacement (an 8-bit one of $FF). */
+  branch020(op: number): void {
+    if ((op & 0xff) !== 0xff) {
+      this.branch(op);
+      return;
+    }
+    const base = this.pc;
+    const displacement = this.fetch32() | 0;
+    const condition = (op >> 8) & 15;
+    this.cycles += 2;
+    if (condition === 1) {
+      this.push32(this.pc);
+      this.jump(base + displacement);
+    } else if (this.condition(condition)) {
+      this.jump(base + displacement);
+    }
+  }
+
+  extb(op: number): void {
+    const reg = op & 7;
+    this.d[reg] = signed8(this.d[reg]);
+    this.logic(this.d[reg], 4);
+  }
+
+  linkLong(op: number): void {
+    const reg = op & 7;
+    this.push32(reg === 7 ? this.a[7] - 4 : this.a[reg]);
+    this.a[reg] = this.a[7];
+    this.a[7] += this.fetch32() | 0;
+  }
+
+  rtd(): void {
+    const displacement = signed16(this.fetch16());
+    const pc = this.pop32();
+    this.a[7] += displacement;
+    this.jump(pc);
+  }
+
+  chkLong(op: number): void {
+    const bound = this.readEa((op >> 3) & 7, op & 7, 4) | 0;
+    const value = this.d[(op >> 9) & 7] | 0;
+    this.cycles += 6;
+    this.z = value === 0;
+    this.v = this.c = false;
+    if (value > bound) {
+      this.n = value < 0;
+      this.exception(VECTOR_CHK, this.pc);
+    } else if (value < 0) {
+      this.n = true;
+      this.exception(VECTOR_CHK, this.pc);
+    }
+  }
+
+  /** CHK2 and CMP2: a register against a lower and upper bound in memory (signed if the bounds only make sense that way). */
+  chk2(op: number): void {
+    const size = SIZE_FIELD[(op >> 9) & 3];
+    const extension = this.fetch16();
+    const reg = (extension >> 12) & 7;
+    const address = this.address((op >> 3) & 7, op & 7, size);
+    let lower = this.readSized(address, size);
+    let upper = this.readSized(address + size, size);
+    let value: number;
+    if (extension & 0x8000) {
+      value = this.a[reg] | 0;
+      lower = sizedSigned(lower, size);
+      upper = sizedSigned(upper, size);
+    } else {
+      value = wrap(this.d[reg], size);
+      if (lower > upper) {
+        lower = sizedSigned(lower, size);
+        upper = sizedSigned(upper, size);
+        value = sizedSigned(value, size);
+      }
+    }
+    this.cycles += 8;
+    this.z = value === lower || value === upper;
+    this.c = lower <= upper ? value < lower || value > upper : value > upper && value < lower;
+    if (this.c && extension & 0x0800) this.exception(VECTOR_CHK, this.pc);
+  }
+
+  /** CAS: compare Dc with the operand; if they are equal Du goes there, else the operand goes to Dc. */
+  cas(op: number): void {
+    const size = SIZE_FIELD[((op >> 9) & 3) - 1];
+    const extension = this.fetch16();
+    const mode = (op >> 3) & 7;
+    const reg = op & 7;
+    const operand = this.readEa(mode, reg, size);
+    const dc = extension & 7;
+    this.compare(wrap(this.d[dc], size), operand, size);
+    this.cycles += 4;
+    if (this.z) this.writeBack(mode, reg, size, this.d[(extension >> 6) & 7]);
+    else this.setD(dc, size, operand);
+  }
+
+  /** CAS2: two compares and swaps, done only if both match. */
+  cas2(op: number): void {
+    const size: Size = op & 0x200 ? 4 : 2;
+    const first = this.fetch16();
+    const second = this.fetch16();
+    const address1 = first & 0x8000 ? this.a[(first >> 12) & 7] : this.d[(first >> 12) & 7];
+    const address2 = second & 0x8000 ? this.a[(second >> 12) & 7] : this.d[(second >> 12) & 7];
+    const operand1 = this.readSized(address1, size);
+    const operand2 = this.readSized(address2, size);
+    const dc1 = first & 7;
+    const dc2 = second & 7;
+    this.cycles += 8;
+    this.compare(wrap(this.d[dc1], size), operand1, size);
+    if (this.z) this.compare(wrap(this.d[dc2], size), operand2, size);
+    if (this.z) {
+      this.writeSized(address1, size, this.d[(first >> 6) & 7]);
+      this.writeSized(address2, size, this.d[(second >> 6) & 7]);
+    } else {
+      this.setD(dc1, size, operand1);
+      this.setD(dc2, size, operand2);
+    }
+  }
+
+  /** TRAPcc: a TRAPV on any condition, with an optional operand word or long that is skipped. */
+  trapcc(op: number): void {
+    const operand = op & 7;
+    if (operand === 2) this.fetch16();
+    else if (operand === 3) this.fetch32();
+    if (this.condition((op >> 8) & 15)) this.exception(VECTOR_TRAPV, this.pc);
+  }
+
+  movec(op: number): void {
+    if (!this.privileged()) return;
+    const extension = this.fetch16();
+    const regs = extension & 0x8000 ? this.a : this.d;
+    const reg = (extension >> 12) & 7;
+    const control = extension & 0xfff;
+    this.cycles += 6;
+    if (op & 1) {
+      const value = regs[reg];
+      if (!this.writeControl(control, value)) this.exception(VECTOR_ILLEGAL, this.instructionPc);
+    } else {
+      const value = this.readControl(control);
+      if (value === null) this.exception(VECTOR_ILLEGAL, this.instructionPc);
+      else regs[reg] = value;
+    }
+  }
+
+  private readControl(control: number): number | null {
+    switch (control) {
+      case 0x000:
+        return this.sfc;
+      case 0x001:
+        return this.dfc;
+      case 0x002:
+        return this.cacr;
+      case 0x800:
+        return this.otherSp;
+      case 0x801:
+        return this.vbr;
+      case 0x802:
+        return this.caar;
+      case 0x803:
+        return this.msp;
+      case 0x804:
+        return this.a[7];
+      default:
+        return null;
+    }
+  }
+
+  private writeControl(control: number, value: number): boolean {
+    switch (control) {
+      case 0x000:
+        this.sfc = value & 7;
+        return true;
+      case 0x001:
+        this.dfc = value & 7;
+        return true;
+      case 0x002:
+        // The EC020's cache: enable and freeze are kept; the clear bits act and read back as 0.
+        this.cacr = value & 0x3;
+        return true;
+      case 0x800:
+        this.otherSp = value >>> 0;
+        return true;
+      case 0x801:
+        this.vbr = value >>> 0;
+        return true;
+      case 0x802:
+        this.caar = value >>> 0;
+        return true;
+      case 0x803:
+        this.msp = value >>> 0;
+        return true;
+      case 0x804:
+        this.a[7] = value;
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /** MOVES: a move in another address space, which the Amiga's memory map doesn't tell apart. */
+  moves(op: number): void {
+    if (!this.privileged()) return;
+    const size = SIZE_FIELD[(op >> 6) & 3];
+    const extension = this.fetch16();
+    const regs = extension & 0x8000 ? this.a : this.d;
+    const reg = (extension >> 12) & 7;
+    const mode = (op >> 3) & 7;
+    const ea = op & 7;
+    if (extension & 0x0800) {
+      this.writeEa(mode, ea, size, regs[reg]);
+    } else {
+      const value = this.readEa(mode, ea, size);
+      if (regs === this.a) this.a[reg] = sizedSigned(value, size);
+      else this.setD(reg, size, value);
+    }
+  }
+
+  /** MULU.L and MULS.L: 32 x 32 bits, to 32 bits (V on overflow) or 64 in Dh:Dl. */
+  mulLong(op: number): void {
+    const extension = this.fetch16();
+    const source = this.readEa((op >> 3) & 7, op & 7, 4);
+    const dl = (extension >> 12) & 7;
+    const signed = (extension & 0x0800) !== 0;
+    const wide = (extension & 0x0400) !== 0;
+    const a = signed ? BigInt(source | 0) : BigInt(source >>> 0);
+    const b = signed ? BigInt(this.d[dl] | 0) : BigInt(this.d[dl] >>> 0);
+    const product = a * b;
+    const low = Number(BigInt.asUintN(32, product));
+    const high = Number(BigInt.asUintN(32, product >> 32n));
+    this.cycles += 40;
+    this.c = false;
+    if (wide) {
+      this.d[dl] = low;
+      this.d[extension & 7] = high;
+      this.n = (high & 0x80000000) !== 0;
+      this.z = product === 0n;
+      this.v = false;
+      return;
+    }
+    this.d[dl] = low;
+    this.n = (low & 0x80000000) !== 0;
+    this.z = low === 0;
+    this.v = signed ? product !== BigInt(low | 0) : high !== 0;
+  }
+
+  /** DIVU.L and DIVS.L: 32 or 64 bits by 32, the quotient in Dq and the remainder in Dr. */
+  divLong(op: number): void {
+    const extension = this.fetch16();
+    const divisorRaw = this.readEa((op >> 3) & 7, op & 7, 4);
+    const dq = (extension >> 12) & 7;
+    const dr = extension & 7;
+    const signed = (extension & 0x0800) !== 0;
+    const wide = (extension & 0x0400) !== 0;
+    if (divisorRaw === 0) {
+      this.zeroDivide();
+      return;
+    }
+    const divisor = signed ? BigInt(divisorRaw | 0) : BigInt(divisorRaw >>> 0);
+    let dividend: bigint;
+    if (wide) {
+      const combined = (BigInt(this.d[dr] >>> 0) << 32n) | BigInt(this.d[dq] >>> 0);
+      dividend = signed ? BigInt.asIntN(64, combined) : combined;
+    } else {
+      dividend = signed ? BigInt(this.d[dq] | 0) : BigInt(this.d[dq] >>> 0);
+    }
+    const quotient = dividend / divisor;
+    const remainder = dividend % divisor;
+    this.cycles += 76;
+    this.c = false;
+    const fits = signed ? quotient >= -0x80000000n && quotient <= 0x7fffffffn : quotient <= 0xffffffffn;
+    if (!fits) {
+      this.v = true;
+      return;
+    }
+    this.v = false;
+    const q = Number(BigInt.asUintN(32, quotient));
+    if (dr !== dq) this.d[dr] = Number(BigInt.asUintN(32, remainder));
+    this.d[dq] = q;
+    this.n = (q & 0x80000000) !== 0;
+    this.z = q === 0;
+  }
+
+  /** PACK and UNPK: BCD digits between a word's two bytes' low nibbles and a byte, with an adjustment. */
+  packUnpack(op: number): void {
+    const unpack = (op & 0x1c0) === 0x180;
+    const rx = op & 7;
+    const ry = (op >> 9) & 7;
+    const memory = (op & 0x08) !== 0;
+    const adjustment = this.fetch16();
+    if (!unpack) {
+      let source: number;
+      if (memory) {
+        this.a[rx] -= 1;
+        const low = this.read8(this.a[rx]);
+        this.a[rx] -= 1;
+        source = (this.read8(this.a[rx]) << 8) | low;
+      } else {
+        source = this.d[rx] & 0xffff;
+      }
+      source = (source + adjustment) & 0xffff;
+      const packed = ((source >> 4) & 0xf0) | (source & 0x0f);
+      if (memory) {
+        this.a[ry] -= M68k.step(ry, 1);
+        this.write8(this.a[ry], packed);
+      } else {
+        this.setD(ry, 1, packed);
+      }
+      return;
+    }
+    let source: number;
+    if (memory) {
+      this.a[rx] -= M68k.step(rx, 1);
+      source = this.read8(this.a[rx]);
+    } else {
+      source = this.d[rx] & 0xff;
+    }
+    const unpacked = ((((source & 0xf0) << 4) | (source & 0x0f)) + adjustment) & 0xffff;
+    if (memory) {
+      this.a[ry] -= 1;
+      this.write8(this.a[ry], unpacked & 0xff);
+      this.a[ry] -= 1;
+      this.write8(this.a[ry], unpacked >> 8);
+    } else {
+      this.setD(ry, 2, unpacked);
+    }
+  }
+
+  /** BFTST, BFEXTU, BFCHG, BFEXTS, BFCLR, BFFFO, BFSET and BFINS: a field of up to 32 bits in a register or memory. */
+  bitField(op: number): void {
+    const kind = (op >> 8) & 7;
+    const extension = this.fetch16();
+    const mode = (op >> 3) & 7;
+    const reg = op & 7;
+    let offset = extension & 0x0800 ? this.d[(extension >> 6) & 7] | 0 : (extension >> 6) & 31;
+    let width = extension & 0x0020 ? this.d[extension & 7] & 31 : extension & 31;
+    if (width === 0) width = 32;
+    const dn = (extension >> 12) & 7;
+    const mask = width === 32 ? 0xffffffff : (2 ** width - 1);
+    this.cycles += 8;
+    let field: number;
+    let write: (value: number) => void;
+    if (mode === 0) {
+      offset &= 31;
+      const rotated = ((this.d[reg] << offset) | (offset ? this.d[reg] >>> (32 - offset) : 0)) >>> 0;
+      field = Math.floor(rotated / 2 ** (32 - width)) % (mask + 1);
+      write = (value) => {
+        const shift = 32 - width;
+        const fieldMask = (mask * 2 ** shift) >>> 0;
+        const placed = ((value * 2 ** shift) >>> 0) & fieldMask;
+        const updated = ((rotated & ~fieldMask) | placed) >>> 0;
+        this.d[reg] = offset ? ((updated >>> offset) | (updated << (32 - offset))) >>> 0 : updated;
+      };
+    } else {
+      const base = this.address(mode, reg, 1);
+      const address = (base + Math.floor(offset / 8)) >>> 0;
+      const bitOffset = ((offset % 8) + 8) % 8;
+      const bytes = Math.ceil((bitOffset + width) / 8);
+      let raw = 0n;
+      for (let i = 0; i < bytes; i++) raw = (raw << 8n) | BigInt(this.read8(address + i));
+      const totalBits = BigInt(bytes * 8);
+      const shift = totalBits - BigInt(bitOffset + width);
+      field = Number((raw >> shift) & BigInt(mask));
+      write = (value) => {
+        const fieldMask = BigInt(mask) << shift;
+        const updated = (raw & ~fieldMask) | ((BigInt(value >>> 0) & BigInt(mask)) << shift);
+        for (let i = bytes - 1; i >= 0; i--) this.write8(address + i, Number((updated >> BigInt((bytes - 1 - i) * 8)) & 0xffn));
+      };
+    }
+    const top = 2 ** (width - 1);
+    this.n = field >= top;
+    this.z = field === 0;
+    this.v = this.c = false;
+    switch (kind) {
+      case 0:
+        break;
+      case 1:
+        this.d[dn] = field;
+        break;
+      case 2:
+        write(~field & mask);
+        break;
+      case 3:
+        this.d[dn] = field >= top ? field - 2 * top : field;
+        break;
+      case 4:
+        write(0);
+        break;
+      case 5: {
+        let index = 0;
+        while (index < width && !(Math.floor(field / 2 ** (width - 1 - index)) & 1)) index++;
+        this.d[dn] = (offset + index) >>> 0;
+        break;
+      }
+      case 6:
+        write(mask);
+        break;
+      default: {
+        const value = this.d[dn] % (mask + 1);
+        const unsigned = value < 0 ? value + mask + 1 : value;
+        this.n = unsigned >= top;
+        this.z = unsigned === 0;
+        write(unsigned);
+      }
+    }
+  }
+
+  /** BKPT: with no debugger to answer it, an illegal instruction. */
+  bkpt(): void {
+    this.exception(VECTOR_ILLEGAL, this.instructionPc);
+  }
+
+  /** TST and CMPI take any operand on the 68020 (an address register, or the PC-relative and immediate modes). */
+  tst020(op: number): void {
+    const size = SIZE_FIELD[(op >> 6) & 3];
+    this.logic(this.readEa((op >> 3) & 7, op & 7, size), size);
+  }
 }
 
 /** DIVU's time, from the number of steps its shift-and-subtract loop takes (Jorge Cwik's analysis). */
@@ -1497,3 +2046,61 @@ function decode(op: number): Handler {
 }
 
 const OPCODES: Handler[] = Array.from({ length: 0x10000 }, (_, op) => decode(op));
+
+/** The 68EC020's instructions: the 68000's, the new ones, and some 68000 ones that take more operands. */
+function decode020(op: number): Handler {
+  const mode = (op >> 3) & 7;
+  const reg = op & 7;
+  const base = OPCODES[op];
+  switch (op >> 12) {
+    case 0x0: {
+      if ((op & 0xf9c0) === 0x00c0 && ((op >> 9) & 3) !== 3) return isControl(mode, reg) ? P.chk2 : P.illegal;
+      if ((op & 0xf9c0) === 0x08c0 && ((op >> 9) & 3) !== 0) {
+        if ((op & 0xfdff) === 0x0cfc) return P.cas2;
+        return isMemoryAlterable(mode, reg) ? P.cas : P.illegal;
+      }
+      if ((op & 0xff00) === 0x0e00 && ((op >> 6) & 3) !== 3) return isMemoryAlterable(mode, reg) ? P.moves : P.illegal;
+      // CMPI takes the PC-relative modes too.
+      if ((op & 0xff00) === 0x0c00 && ((op >> 6) & 3) !== 3 && mode === 7 && (reg === 2 || reg === 3)) return P.immediate;
+      return base;
+    }
+    case 0x4: {
+      if ((op & 0xffc0) === 0x4c00) return isDataEa(mode, reg) ? P.mulLong : P.illegal;
+      if ((op & 0xffc0) === 0x4c40) return isDataEa(mode, reg) ? P.divLong : P.illegal;
+      if ((op & 0xfff8) === 0x49c0) return P.extb;
+      if ((op & 0xfff8) === 0x4808) return P.linkLong;
+      if ((op & 0xfff8) === 0x4848) return P.bkpt;
+      if ((op & 0xf1c0) === 0x4100) return isDataEa(mode, reg) ? P.chkLong : P.illegal;
+      if (op === 0x4e74) return P.rtd;
+      if ((op & 0xfffe) === 0x4e7a) return P.movec;
+      if ((op & 0xffc0) === 0x42c0) return isDataAlterable(mode, reg) ? P.moveFromCcr : P.illegal;
+      if ((op & 0xffc0) === 0x40c0) return isDataAlterable(mode, reg) ? P.moveFromSr020 : P.illegal;
+      if ((op & 0xff00) === 0x4a00 && ((op >> 6) & 3) !== 3) {
+        const valid = isValidEa(mode, reg) && !(mode === 1 && ((op >> 6) & 3) === 0);
+        return valid ? P.tst020 : P.illegal;
+      }
+      return base;
+    }
+    case 0x5:
+      if ((op & 0xf0f8) === 0x50f8 && reg >= 2 && reg <= 4) return P.trapcc;
+      return base;
+    case 0x6:
+      return P.branch020;
+    case 0x8:
+      if ((op & 0xf1f0) === 0x8140 || (op & 0xf1f0) === 0x8180) return P.packUnpack;
+      return base;
+    case 0xe:
+      if ((op & 0xf8c0) === 0xe8c0) {
+        const kind = (op >> 8) & 7;
+        // BFTST, BFEXTU, BFEXTS and BFFFO only read, so they take the PC-relative modes; the others need an alterable operand.
+        const readOnly = kind === 0 || kind === 1 || kind === 3 || kind === 5;
+        const valid = mode === 0 || (readOnly ? isControl(mode, reg) : isControl(mode, reg) && isAlterable(mode, reg));
+        return valid ? P.bitField : P.illegal;
+      }
+      return base;
+    default:
+      return base;
+  }
+}
+
+const OPCODES_020: Handler[] = Array.from({ length: 0x10000 }, (_, op) => decode020(op));

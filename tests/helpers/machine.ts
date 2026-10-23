@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Amiga } from '../../src/amiga';
+import { MODELS } from '../../src/models';
 import { identifyKickstart } from '../../src/roms/system-roms';
 import { framePng } from './png';
 
@@ -28,6 +29,16 @@ export function machineWith(rom: Uint8Array, extended: Uint8Array | null = null)
   const amiga = new Amiga();
   amiga.setKickstart(rom);
   amiga.extendedRom = extended;
+  amiga.powerOn();
+  return amiga;
+}
+
+/** An A1200 (68EC020, AGA, 2 MB of chip RAM) with this Kickstart, switched on. */
+export function a1200With(rom: Uint8Array): Amiga {
+  const amiga = new Amiga();
+  amiga.setModel(MODELS.find((model) => model.id === 'a1200')!);
+  amiga.setMemory({ chipKb: 2048, slowKb: 0, fastKb: 0 });
+  amiga.setKickstart(rom);
   amiga.powerOn();
   return amiga;
 }

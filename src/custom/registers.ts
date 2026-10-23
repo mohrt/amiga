@@ -41,6 +41,10 @@ export const Reg = {
   BLTDPTH: 0x054,
   BLTDPTL: 0x056,
   BLTSIZE: 0x058,
+  /** ECS blitter: BLTCON0's low byte, and the larger blits' height (BLTSIZV) and width (BLTSIZH, which starts it). */
+  BLTCON0L: 0x05a,
+  BLTSIZV: 0x05c,
+  BLTSIZH: 0x05e,
   BLTCMOD: 0x060,
   BLTBMOD: 0x062,
   BLTAMOD: 0x064,
@@ -71,14 +75,22 @@ export const Reg = {
   /** BPL1PTH; BPL1PTH-BPL6PTL run to $0F6. */
   BPL1PT: 0x0e0,
   BPL6PT_END: 0x0f7,
+  /** AGA's seventh and eighth plane pointers end here. */
+  BPL8PT_END: 0x0ff,
   BPLCON0: 0x100,
   BPLCON1: 0x102,
   BPLCON2: 0x104,
+  /** ECS Denise and later. */
+  BPLCON3: 0x106,
   BPL1MOD: 0x108,
   BPL2MOD: 0x10a,
-  /** BPL1DAT-BPL6DAT run to $11A. */
+  /** BPL1DAT-BPL6DAT run to $11A, and AGA's BPL7DAT and BPL8DAT to $11E. */
   BPL1DAT: 0x110,
   BPL6DAT: 0x11a,
+  BPL8DAT: 0x11e,
+  /** AGA: BPLCON4 (bitplane and sprite colour banks) and FMODE (fetch widths). */
+  BPLCON4: 0x10c,
+  FMODE: 0x1fc,
   /** SPR0PTH; SPR0PTH-SPR7PTL run to $13E. */
   SPR0PT: 0x120,
   SPR7PT_END: 0x13f,
@@ -87,6 +99,11 @@ export const Reg = {
   SPR7_END: 0x17f,
   COLOR00: 0x180,
   COLOR31: 0x1be,
+  /** ECS Agnus and later. */
+  BEAMCON0: 0x1dc,
+  DIWHIGH: 0x1e4,
+  /** ECS Denise's ID ($FC); the original Denise has no such register. */
+  DENISEID: 0x07c,
 } as const;
 
 /** DMACON bits. */

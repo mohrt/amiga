@@ -53,6 +53,7 @@ const SKIPPED_FIELDS = new Set([
   'buffer',
   'host',
   'joysticks',
+  'table',
 ]);
 
 const isTyped = (value: unknown): value is TypedArray => ArrayBuffer.isView(value) && !(value instanceof DataView);

@@ -1,3 +1,4 @@
+import type { ModelId, ModelSpec } from '../models';
 import type { KeyValueStore } from '../storage/store';
 import { crc32 } from '../util/crc32';
 
@@ -9,8 +10,10 @@ const ENCRYPTED_MAGIC = 'AMIROMTYPE1';
 
 interface KnownRom {
   name: string;
-  /** Set for ROMs made for a later Amiga that won't start on an A500's 68000. */
+  /** Set for ROMs made for a later Amiga that isn't emulated yet. */
   unsuitable?: string;
+  /** The model a ROM needs (the A1200's, for its 68EC020 and AGA chips). */
+  requires?: ModelId;
 }
 
 /** CRC-32s of the original Commodore Kickstarts. */
@@ -29,9 +32,9 @@ const KNOWN_ROMS: Record<number, KnownRom> = {
   0xe0f37258: { name: 'Kickstart 1.3 (34.5, A3000)', unsuitable: 'it is made for the A3000 (68030)' },
   0xb4113910: { name: 'Kickstart 2.0 (36.28, A3000)', unsuitable: 'it is made for the A3000 (68030)' },
   0x9a15519d: { name: 'Kickstart 2.02 (36.207, A3000)', unsuitable: 'it is made for the A3000 (68030)' },
-  0x6c9b07d2: { name: 'Kickstart 3.0 (39.106, A1200)', unsuitable: 'it is made for the A1200 (68020 and AGA)' },
+  0x6c9b07d2: { name: 'Kickstart 3.0 (39.106, A1200)', requires: 'a1200' },
   0x9e6ac152: { name: 'Kickstart 3.0 (39.106, A4000)', unsuitable: 'it is made for the A4000 (68040 and AGA)' },
-  0x1483a091: { name: 'Kickstart 3.1 (40.68, A1200)', unsuitable: 'it is made for the A1200 (68020 and AGA)' },
+  0x1483a091: { name: 'Kickstart 3.1 (40.68, A1200)', requires: 'a1200' },
   0xefb239cc: { name: 'Kickstart 3.1 (40.68, A3000)', unsuitable: 'it is made for the A3000 (68030)' },
   0xd6bae334: { name: 'Kickstart 3.1 (40.68, A4000)', unsuitable: 'it is made for the A4000 (68040 and AGA)' },
   0x2b4566f1: { name: 'Kickstart 3.1 (40.70, A4000)', unsuitable: 'it is made for the A4000 (68040 and AGA)' },
@@ -39,13 +42,20 @@ const KNOWN_ROMS: Record<number, KnownRom> = {
   0x1e62d4a5: { name: 'Kickstart 3.1 (40.60, CD32)', unsuitable: 'it is made for the CD32 (68020 and AGA)' },
 };
 
-/** Commodore's Kickstarts for an A500, newest first: 3.1, 2.05, 2.04, 1.3, 1.2. */
-const PREFERRED_ROMS = [0xfc24ae0d, 0x43b0df7b, 0x64466c2a, 0x83028fb5, 0xc3bdb240, 0xc4f0f55f, 0xa6ce1636, 0x9ed783d0];
+/** Commodore's Kickstarts for an A500, newest first: 3.1, 2.05, 2.04, 1.3, 1.2; then the A1200's 3.1 and 3.0. */
+const PREFERRED_ROMS = [0xfc24ae0d, 0x43b0df7b, 0x64466c2a, 0x83028fb5, 0xc3bdb240, 0xc4f0f55f, 0xa6ce1636, 0x9ed783d0, 0x1483a091, 0x6c9b07d2];
 
-function preferenceRank(rom: Kickstart): number {
+/** Whether a Kickstart starts on the model: the A1200's ROMs need its 68EC020 and AGA chips. */
+export function suitsModel(rom: Kickstart, model: ModelSpec): boolean {
+  return !rom.requires || rom.requires === model.id;
+}
+
+function preferenceRank(rom: Kickstart, model?: ModelSpec): number {
+  // A model's own ROMs come first (the A1200's for an A1200).
+  const own = model && rom.requires === model.id ? -PREFERRED_ROMS.length : 0;
   const known = PREFERRED_ROMS.indexOf(crc32(rom.data));
-  if (known >= 0) return known;
-  return PREFERRED_ROMS.length + (rom.warning ? 1 : 0);
+  if (known >= 0) return own + known;
+  return own + PREFERRED_ROMS.length + (rom.warning ? 1 : 0);
 }
 
 const IDE_DRIVER = [...'scsi.device'].map((char) => char.charCodeAt(0));
@@ -63,7 +73,7 @@ export function hasIdeDriver(rom: Uint8Array): boolean {
  * Several Kickstarts (a ROM collection's) best first, each ROM once. Collections also hold
  * betas, hacks and ROMs for other models; when Commodore's own A500 ROMs are among them, only those count.
  */
-export function rankKickstarts(roms: Kickstart[]): Kickstart[] {
+export function rankKickstarts(roms: Kickstart[], model?: ModelSpec): Kickstart[] {
   const unique = new Map<number, Kickstart>();
   for (const rom of roms) {
     const crc = crc32(rom.data);
@@ -71,12 +81,13 @@ export function rankKickstarts(roms: Kickstart[]): Kickstart[] {
   }
   const all = [...unique.values()];
   const originals = all.filter((rom) => PREFERRED_ROMS.includes(crc32(rom.data)));
-  return (originals.length ? originals : all).sort((a, b) => preferenceRank(a) - preferenceRank(b));
+  return (originals.length ? originals : all).sort((a, b) => preferenceRank(a, model) - preferenceRank(b, model));
 }
 
-/** The Kickstart to use from several: the newest Commodore made for the A500. */
-export function preferredKickstart(roms: Kickstart[]): Kickstart {
-  return rankKickstarts(roms)[0];
+/** The Kickstart to use from several: the newest Commodore made for the model (the A500 if none is given) that starts on it. */
+export function preferredKickstart(roms: Kickstart[], model?: ModelSpec): Kickstart {
+  const ranked = rankKickstarts(roms, model);
+  return ranked.find((rom) => !model || suitsModel(rom, model)) ?? ranked[0];
 }
 
 /** Kickstart versions (from the ROM header) by the number Commodore marketed them as. */
@@ -101,6 +112,8 @@ export interface Kickstart extends StoredRom {
   title: string;
   /** Set when the ROM isn't one Commodore shipped for an A500-class machine. */
   warning: string | null;
+  /** The model it needs, for the A1200's ROMs. */
+  requires?: ModelId;
 }
 
 /** Thrown for an Amiga Forever ROM when no rom.key has been given yet. */
@@ -195,8 +208,13 @@ export function identifyKickstart(name: string, file: Uint8Array, key?: Uint8Arr
   }
 
   const known = KNOWN_ROMS[crc32(data)];
-  if (known?.unsuitable) throw new Error(`${known.name} won't start on an Amiga 500: ${known.unsuitable}. Use Kickstart 1.3, 2.04 or 3.1 for the A500.`);
-  if (known) return { name, data, title: known.name, warning: null };
+  if (known?.unsuitable) {
+    throw new Error(
+      `${known.name} won't start on the Amigas emulated here yet: ${known.unsuitable}. ` +
+        'Use Kickstart 1.3, 2.04 or 3.1 for the A500/A2000, 2.05 for the A600, or 3.0 or 3.1 for the A1200.',
+    );
+  }
+  if (known) return { name, data, title: known.name, warning: null, ...(known.requires ? { requires: known.requires } : {}) };
   const warning = kickstartChecksumOk(data)
     ? 'not an original Commodore ROM for the A500; it may not start'
     : 'its checksum is wrong, so it is probably damaged';

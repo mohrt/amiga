@@ -12,8 +12,8 @@ const EXTENSION = /\.adf$/i;
 // Games on the ACE engine hand the system back to Kickstart to load files, then take it over again
 // with a CIA-B timer interrupt already pending; they hung on their logos when it was lost.
 const aceGames = [
-  { name: 'chaos-arena', memory: { chipKb: 512, slowKb: 512 }, menuSeconds: 75 },
-  { name: 'germz', memory: { chipKb: 1024, slowKb: 0 }, menuSeconds: 110 },
+  { name: 'chaos-arena', memory: { chipKb: 512, slowKb: 512, fastKb: 0 }, menuSeconds: 75 },
+  { name: 'germz', memory: { chipKb: 1024, slowKb: 0, fastKb: 0 }, menuSeconds: 110 },
 ] as const;
 const aceDisks = new Set(aceGames.map((game) => `${game.name}.adf`));
 const diskFiles = (dir: string) =>

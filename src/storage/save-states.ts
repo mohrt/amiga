@@ -16,8 +16,10 @@ export interface Session {
   /** CRC-32 of the Kickstart it ran (a state only makes sense with the same ROM). */
   kickstartCrc: number;
   kickstartTitle: string;
+  /** The model (states saved before there were models are an A500's). */
+  model?: string;
   standard: 'pal' | 'ntsc';
-  memory: { chipKb: number; slowKb: number };
+  memory: { chipKb: number; slowKb: number; fastKb?: number };
   externalDrive: boolean;
   disks: (SessionDisk | null)[];
 }
@@ -72,6 +74,6 @@ export async function encodeSession(session: Session): Promise<Uint8Array> {
 
 export async function decodeSession(bytes: Uint8Array): Promise<Session> {
   const decoded = await decodeState<Session & { magic?: string }>(bytes).catch(() => null);
-  if (decoded?.magic !== MAGIC) throw new Error('That file is not an Amiga 500 save state.');
+  if (decoded?.magic !== MAGIC) throw new Error('That file is not an Amiga save state.');
   return decoded;
 }

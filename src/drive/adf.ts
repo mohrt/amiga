@@ -36,7 +36,7 @@ export class FloppyDisk {
   }
 
   static fromAdf(bytes: Uint8Array, name: string): FloppyDisk {
-    if (bytes.length === HD_ADF_SIZE) throw new Error(`${name} is a high-density disk, which an Amiga 500's drive can't read.`);
+    if (bytes.length === HD_ADF_SIZE) throw new Error(`${name} is a high-density disk, which the Amiga's double-density drives can't read.`);
     if (startsWith(bytes, EXTENDED_MAGIC)) return FloppyDisk.fromExtended(bytes, name);
     if (bytes.length !== ADF_SIZE) {
       throw new Error(`${name} is ${bytes.length.toLocaleString('en')} bytes; an .adf disk image is 901,120.`);

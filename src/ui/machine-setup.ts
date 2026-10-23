@@ -1,4 +1,6 @@
-import type { MemoryConfig, VideoStandard } from '../amiga';
+import type { VideoStandard } from '../amiga';
+import { MODELS, memoryByKey, memoryOption, modelById, type ModelId, type ModelSpec } from '../models';
+import type { MemoryConfig } from '../amiga';
 import { isZip, readZip } from '../drive/zip';
 import { HardDiskImage, isPartitionOnly } from '../ide/image';
 import type { HardDiskInfo } from '../storage/hard-disks';
@@ -12,6 +14,7 @@ import {
   looksLikeKickstart,
   preferredKickstart,
   rankKickstarts,
+  suitsModel,
   type Kickstart,
   type SystemRomStore,
 } from '../roms/system-roms';
@@ -48,6 +51,7 @@ function summarise(errors: string[]): string {
 
 /** How the machine is built; changing any of it means switching off and on. */
 export interface MachineChoices {
+  model: ModelId;
   standard: VideoStandard;
   memory: MemoryConfig;
   externalDrive: boolean;
@@ -55,8 +59,9 @@ export interface MachineChoices {
 }
 
 export const DEFAULT_CHOICES: MachineChoices = {
+  model: 'a500',
   standard: 'pal',
-  memory: { chipKb: 512, slowKb: 512 },
+  memory: { chipKb: 512, slowKb: 512, fastKb: 0 },
   externalDrive: false,
   hardDrive: false,
 };
@@ -80,14 +85,19 @@ export interface MachineSetup {
   hardDisk: HardDiskChange;
 }
 
-export const MEMORY_CHOICES: Record<string, MemoryConfig> = {
-  '512+512': { chipKb: 512, slowKb: 512 },
-  '512': { chipKb: 512, slowKb: 0 },
-  '1024': { chipKb: 1024, slowKb: 0 },
-};
+/** How a memory setup reads in the menu, e.g. "512K chip + 512K slow". */
+export function memoryLabel(memory: MemoryConfig): string {
+  const size = (kb: number) => (kb >= 1024 ? `${kb / 1024}MB` : `${kb}K`);
+  const parts = [`${size(memory.chipKb)} chip`];
+  if (memory.slowKb) parts.push(`${size(memory.slowKb)} slow`);
+  if (memory.fastKb) parts.push(`${size(memory.fastKb)} fast`);
+  return parts.join(' + ');
+}
 
-const memoryValue = (memory: MemoryConfig) =>
-  Object.entries(MEMORY_CHOICES).find(([, config]) => config.chipKb === memory.chipKb && config.slowKb === memory.slowKb)?.[0] ?? '512+512';
+/** A choice of memory for the model (its default if the choice isn't one of its setups). */
+export function modelMemory(model: ModelSpec, memory: MemoryConfig): MemoryConfig {
+  return memoryOption(model, memory).config;
+}
 
 const megabytes = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`;
 
@@ -105,6 +115,8 @@ export function askForMachine(root: HTMLElement, store: SystemRomStore, initial:
     return element;
   };
   const fileInput = query<HTMLInputElement>('input[name="rom-files"]');
+  const modelSelect = query<HTMLSelectElement>('select[name="model"]');
+  const romHint = query<HTMLElement>('.model-rom-hint');
   const standardSelect = query<HTMLSelectElement>('select[name="tv"]');
   const memorySelect = query<HTMLSelectElement>('select[name="memory"]');
   const externalDrive = query<HTMLInputElement>('input[name="external-drive"]');
@@ -127,8 +139,32 @@ export function askForMachine(root: HTMLElement, store: SystemRomStore, initial:
   const choiceSelect = query<HTMLSelectElement>('select[name="kickstart-choice"]');
   heading.textContent = options.whileRunning ? 'Machine setup' : 'First, load a Kickstart ROM';
   startButton.textContent = options.whileRunning ? 'Restart the Amiga with these settings' : 'Start the Amiga';
+  modelSelect.replaceChildren(
+    ...MODELS.map((model) => {
+      const option = document.createElement('option');
+      option.value = model.id;
+      option.textContent = model.unavailable ? `${model.name} (coming: ${model.unavailable})` : `${model.name} (${model.year})`;
+      option.disabled = !!model.unavailable;
+      return option;
+    }),
+  );
+  modelSelect.value = modelById(options.choices.model).id;
+  /** The memory menu offers the model's setups, keeping the choice where the model has it. */
+  const renderModel = (memory: MemoryConfig) => {
+    const model = modelById(modelSelect.value);
+    romHint.textContent = model.romHint;
+    memorySelect.replaceChildren(
+      ...model.memory.map(({ key, config }) => {
+        const option = document.createElement('option');
+        option.value = key;
+        option.textContent = memoryLabel(config);
+        return option;
+      }),
+    );
+    memorySelect.value = memoryOption(model, memory).key;
+  };
+  renderModel(options.choices.memory);
   standardSelect.value = options.choices.standard;
-  memorySelect.value = memoryValue(options.choices.memory);
   externalDrive.checked = options.choices.externalDrive;
   hardDrive.checked = options.choices.hardDrive;
   let hardDiskChange: HardDiskChange = { kind: 'keep' };
@@ -146,12 +182,14 @@ export function askForMachine(root: HTMLElement, store: SystemRomStore, initial:
   const listeners = new AbortController();
 
   const render = () => {
-    row.dataset.state = kickstart ? (kickstart.warning ? 'warning' : 'loaded') : 'missing';
-    status.textContent = kickstart
-      ? `Loaded: ${kickstart.title}, from ${kickstart.name}${kickstart.warning ? ` (${kickstart.warning})` : ''}`
-      : 'Not loaded yet';
+    const model = modelById(modelSelect.value);
+    const fits = !kickstart || suitsModel(kickstart, model);
+    const required = kickstart?.requires ? modelById(kickstart.requires).name : '';
+    const note = kickstart?.warning ?? (fits ? null : `made for the ${required}; choose it as the model to start this Kickstart`);
+    row.dataset.state = kickstart ? (note ? 'warning' : 'loaded') : 'missing';
+    status.textContent = kickstart ? `Loaded: ${kickstart.title}, from ${kickstart.name}${note ? ` (${note})` : ''}` : 'Not loaded yet';
     keyRow.hidden = !encrypted;
-    startButton.disabled = !kickstart;
+    startButton.disabled = !kickstart || !fits;
     forgetButton.hidden = !kickstart;
     choiceRow.hidden = choices.length < 2;
     renderHardDisk();
@@ -202,9 +240,14 @@ export function askForMachine(root: HTMLElement, store: SystemRomStore, initial:
     useHardDisk(image, file.name.replace(/\.hdf$/i, ''));
   };
 
+  /** Uses a Kickstart, switching to the model it needs if it needs one (the A1200's ROMs). */
   const use = async (rom: Kickstart) => {
     kickstart = rom;
     encrypted = null;
+    if (rom.requires && !suitsModel(rom, modelById(modelSelect.value))) {
+      modelSelect.value = rom.requires;
+      renderModel(memoryByKey(modelById(rom.requires), memorySelect.value));
+    }
     await store.save(rom);
   };
 
@@ -258,9 +301,10 @@ export function askForMachine(root: HTMLElement, store: SystemRomStore, initial:
     }
     if (found.length > 0) {
       // The other files of a batch (a collection's ROMs for other Amigas) don't matter once one fits.
-      choices = rankKickstarts(found);
+      const model = modelById(modelSelect.value);
+      choices = rankKickstarts(found, model);
       await store.saveChoices(choices.length > 1 ? choices : []);
-      await use(preferredKickstart(found));
+      await use(preferredKickstart(found, model));
       half = null;
       errors.length = 0;
     }
@@ -282,6 +326,19 @@ export function askForMachine(root: HTMLElement, store: SystemRomStore, initial:
   });
 
   hardDrive.addEventListener('change', render, { signal: listeners.signal });
+  modelSelect.addEventListener(
+    'change',
+    () => {
+      const model = modelById(modelSelect.value);
+      renderModel(memoryByKey(model, memorySelect.value));
+      // Among the Kickstarts that came together, the model's own goes in (the A1200's for an A1200).
+      const best = choices.length ? preferredKickstart(choices, model) : null;
+      const better = best && suitsModel(best, model) && (!kickstart || !suitsModel(kickstart, model) || (best.requires === model.id && kickstart.requires !== model.id));
+      if (better && best.title !== kickstart?.title) void use(best).then(render);
+      else render();
+    },
+    { signal: listeners.signal },
+  );
   query<HTMLButtonElement>('[data-action="new-hard-disk"]').addEventListener(
     'click',
     () => {
@@ -400,12 +457,16 @@ export function askForMachine(root: HTMLElement, store: SystemRomStore, initial:
       document.body.classList.remove('needs-roms');
       resolve(result);
     };
-    const choices = (): MachineChoices => ({
-      standard: standardSelect.value === 'ntsc' ? 'ntsc' : 'pal',
-      memory: MEMORY_CHOICES[memorySelect.value] ?? MEMORY_CHOICES['512+512'],
-      externalDrive: externalDrive.checked,
-      hardDrive: hardDrive.checked,
-    });
+    const choices = (): MachineChoices => {
+      const model = modelById(modelSelect.value);
+      return {
+        model: model.id,
+        standard: standardSelect.value === 'ntsc' ? 'ntsc' : 'pal',
+        memory: memoryByKey(model, memorySelect.value),
+        externalDrive: externalDrive.checked,
+        hardDrive: hardDrive.checked,
+      };
+    };
     startButton.addEventListener(
       'click',
       () => {

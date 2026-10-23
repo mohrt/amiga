@@ -13,8 +13,6 @@ export interface PaulaHost {
   readonly diskDma: boolean;
   /** The disk index pulse, to CIA-B's FLAG input. */
   indexPulse(): void;
-  /** The CPU's interrupt level changed. */
-  setInterruptLevel(level: number): void;
   /** The INTREQ bits whose interrupt lines are held active from outside (the CIAs' IRQ outputs). */
   heldInterrupts(): number;
 }
@@ -28,6 +26,12 @@ export class Paula {
   intena = 0;
   intreq = 0;
   adkcon = 0;
+  /** The interrupt level Paula puts out to the CPU (which sees it a few cycles later). */
+  level = 0;
+  /** INTENA and INTREQ writes and some requests take effect in the next cycle: values to apply then, or -1. */
+  private pendingIntena = -1;
+  private pendingIntreq = -1;
+  private pendingRequests = 0;
   readonly audio: PaulaAudio;
   readonly floppy: DiskController;
 
@@ -36,7 +40,7 @@ export class Paula {
     drives: FloppyDrive[],
     private readonly host: PaulaHost,
   ) {
-    this.audio = new PaulaAudio(chip, (channel) => this.raise(Int.AUD0 << channel), (channel) => host.audioDma(channel));
+    this.audio = new PaulaAudio(chip, (channel) => this.raiseNextCycle(Int.AUD0 << channel), (channel) => host.audioDma(channel));
     const paula = this;
     this.floppy = new DiskController(chip, drives, {
       raise: (bits) => paula.raise(bits),
@@ -52,20 +56,48 @@ export class Paula {
 
   reset(): void {
     this.intena = this.intreq = this.adkcon = 0;
+    this.pendingIntena = this.pendingIntreq = -1;
+    this.pendingRequests = 0;
     this.audio.reset();
     this.floppy.reset();
     this.update();
   }
 
+  /** INTENA takes the write in the next cycle. */
   writeIntena(value: number): void {
-    this.intena = setClear(this.intena, value);
-    this.update();
+    this.applyPending();
+    this.pendingIntena = value;
   }
 
-  /** INT2 (PORTS) and INT6 (EXTER) are level inputs: their requests can't be cleared while a CIA still holds its IRQ line active. */
+  /** INTREQ takes the write in the next cycle. */
   writeIntreq(value: number): void {
-    this.intreq = setClear(this.intreq, value) | this.host.heldInterrupts();
-    this.update();
+    this.applyPending();
+    this.pendingIntreq = value;
+  }
+
+  /** A request that reaches INTREQ in the next cycle (the blitter's). */
+  raiseNextCycle(bits: number): void {
+    this.pendingRequests |= bits;
+  }
+
+  /** The end of a cycle: the writes and requests made in it take effect. */
+  applyPending(): void {
+    if (this.pendingIntena >= 0) {
+      this.intena = setClear(this.intena, this.pendingIntena);
+      this.pendingIntena = -1;
+      this.update();
+    }
+    if (this.pendingIntreq >= 0) {
+      // INT2 (PORTS) and INT6 (EXTER) are level inputs: their requests can't be cleared while a CIA still holds its IRQ line active.
+      this.intreq = setClear(this.intreq, this.pendingIntreq) | this.host.heldInterrupts();
+      this.pendingIntreq = -1;
+      this.update();
+    }
+    if (this.pendingRequests) {
+      const bits = this.pendingRequests;
+      this.pendingRequests = 0;
+      this.raise(bits);
+    }
   }
 
   writeAdkcon(value: number): void {
@@ -95,6 +127,6 @@ export class Paula {
         }
       }
     }
-    this.host.setInterruptLevel(level);
+    this.level = level;
   }
 }

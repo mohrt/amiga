@@ -46,7 +46,7 @@ describe('blitter', () => {
     setPointer(blit, Reg.BLTAPTH, A);
     setPointer(blit, Reg.BLTDPTH, D);
     blit.write(Reg.BLTSIZE, (2 << 6) | 2);
-    expect(blit.busy).toBe(true);
+    expect(blit.running).toBe(true);
     blit.finishNow();
     expect(blit.busy).toBe(false);
     const words = [0, 1, 2, 3].map((i) => chip.read16(D + i * 2));

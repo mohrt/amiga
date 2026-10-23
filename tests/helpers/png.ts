@@ -18,16 +18,20 @@ export function framePng(amiga: Amiga): Uint8Array {
   const { framebuffer, outputLines } = amiga.denise;
   const width = FRAME_WIDTH;
   const height = outputLines * 2;
-  const raw = new Uint8Array(height * (1 + width * 3));
-  for (let y = 0; y < height; y++) {
-    const row = y * (1 + width * 3);
-    for (let x = 0; x < width; x++) {
-      const pixel = framebuffer[y * width + x];
-      raw[row + 1 + x * 3] = pixel & 0xff;
-      raw[row + 2 + x * 3] = (pixel >> 8) & 0xff;
-      raw[row + 3 + x * 3] = (pixel >> 16) & 0xff;
-    }
+  const rgb = new Uint8Array(width * height * 3);
+  for (let i = 0; i < width * height; i++) {
+    const pixel = framebuffer[i];
+    rgb[i * 3] = pixel & 0xff;
+    rgb[i * 3 + 1] = (pixel >> 8) & 0xff;
+    rgb[i * 3 + 2] = (pixel >> 16) & 0xff;
   }
+  return rgbPng(width, height, rgb);
+}
+
+/** Encodes packed RGB pixels (three bytes each, row by row) as a PNG. */
+export function rgbPng(width: number, height: number, rgb: Uint8Array): Uint8Array {
+  const raw = new Uint8Array(height * (1 + width * 3));
+  for (let y = 0; y < height; y++) raw.set(rgb.subarray(y * width * 3, (y + 1) * width * 3), y * (1 + width * 3) + 1);
   const header = new Uint8Array(13);
   const view = new DataView(header.buffer);
   view.setUint32(0, width);

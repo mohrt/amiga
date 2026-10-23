@@ -21,11 +21,16 @@ describe('Agnus', () => {
     expect(amiga.agnus.clock - ntsc).toBeLessThanOrEqual(263 * 228);
   });
 
-  it('reports the beam in VPOSR and VHPOSR', () => {
+  it('reports the beam in VPOSR and VHPOSR, five cycles ahead of the cycle being worked on', () => {
     const amiga = idleMachine();
-    while (amiga.agnus.vpos !== 0x123 || amiga.agnus.hpos !== 0x45) amiga.agnus.step();
+    while (amiga.agnus.vpos !== 0x123 || amiga.agnus.hpos !== 0x40) amiga.agnus.step();
     expect(amiga.readCustom(0x004) & 1).toBe(1);
     expect(amiga.readCustom(0x006)).toBe(0x2345);
+    // Near the end of a line it reads the next line, except that in that line's first two cycles the line number hasn't moved on.
+    while (amiga.agnus.hpos !== amiga.agnus.lineLength - 4) amiga.agnus.step();
+    expect(amiga.readCustom(0x006)).toBe(0x2301);
+    amiga.agnus.step();
+    expect(amiga.readCustom(0x006)).toBe(0x2402);
   });
 
   it('runs a blit in the free DMA cycles, raising BLIT when done', () => {
@@ -34,6 +39,9 @@ describe('Agnus', () => {
     amiga.writeCustom(0x040, 0x09f0);
     amiga.writeCustom(0x042, 0);
     amiga.writeCustom(0x058, (50 << 6) | 20); // 1000 words, A to D: 2 cycles each
+    // BBUSY comes on in the blit's first start cycle, two cycles after BLTSIZE.
+    expect(amiga.readCustom(0x002) & 0x4000).toBe(0);
+    amiga.agnus.runTo(amiga.agnus.clock + 2);
     expect(amiga.readCustom(0x002) & 0x4000).toBe(0x4000);
     amiga.agnus.runTo(amiga.agnus.clock + 1500);
     expect(amiga.agnus.blitter.busy).toBe(true);

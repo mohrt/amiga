@@ -19,6 +19,9 @@ interface Display {
 
 /** A 320×256 (or 640) display of `planes` bitplanes whose first word of each line is `words[plane]`. */
 function display(amiga: Amiga, setup: Display, words: number[]): void {
+  // The vertical window is a flip-flop (DIWSTRT was 0 at the start of this frame, which opened
+  // it): the display is set up in the frame's last line, which closes it, for the next frame.
+  while (amiga.agnus.vpos !== 312) amiga.agnus.step();
   for (let p = 0; p < setup.planes; p++) {
     for (let line = 0; line < 256; line++) amiga.chip.write16(PLANES + p * PLANE_SIZE + line * 80, words[p] ?? 0);
     amiga.writeCustom(0x0e0 + p * 4, (PLANES + p * PLANE_SIZE) >> 16);
@@ -73,6 +76,21 @@ describe('Denise', () => {
     expect(pixel(amiga, LEFT)).toBe(colour(0x0f0));
     expect(pixel(amiga, LEFT + 1)).toBe(colour(0x000));
     expect(pixel(amiga, LEFT + 2)).toBe(colour(0x0f0));
+  });
+
+  it('shows every other super-hires pixel on ECS, two to each hires position', () => {
+    const amiga = idleMachine();
+    amiga.agnus.setChipset(true);
+    amiga.denise.ecs = true;
+    setColours(amiga, [0x000, 0xf00]);
+    display(amiga, { planes: 1, hires: true, bplcon0: 0x1240 }, [0xcc00]);
+    // A word covers eight hires positions: the first is left of the window, the second starts it.
+    for (let line = 0; line < 256; line++) amiga.chip.write16(PLANES + line * 80 + 2, 0xcc00);
+    runToLine(amiga, 0x2e);
+    expect(pixel(amiga, LEFT)).toBe(colour(0xf00));
+    expect(pixel(amiga, LEFT + 1)).toBe(colour(0x000));
+    expect(pixel(amiga, LEFT + 2)).toBe(colour(0xf00));
+    expect(pixel(amiga, LEFT + 4)).toBe(colour(0x000));
   });
 
   it('scrolls the odd and even planes by BPLCON1', () => {
@@ -141,7 +159,8 @@ describe('Denise', () => {
     const amiga = idleMachine();
     setColours(amiga, [0x000]);
     amiga.writeCustom(0x180 + 2 * 16 + 2 * 0b0110, 0x0ff);
-    display(amiga, { planes: 0 }, []);
+    // A plane of zeros: sprites only show once a line's first bitplane word has opened the window.
+    display(amiga, { planes: 1 }, [0]);
     amiga.writeCustom(0x140, 0x2c48);
     amiga.writeCustom(0x142, 0x3000);
     amiga.writeCustom(0x148, 0x2c48);
