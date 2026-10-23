@@ -81,6 +81,26 @@ export class AmigaBus implements M68kBus {
     return address >= SLOW_START + this.amiga.slow.length && address >= SLOW_START && address < CUSTOM_ECHO_END;
   }
 
+  /** RAM as a DMA controller off the chip bus reaches it (the A3000's SDMAC): chip, slow and fast RAM, without waiting. */
+  readonly dmaMemory = {
+    read8: (address: number): number => {
+      const amiga = this.amiga;
+      const board = this.motherboardOffset(address);
+      if (board >= 0) return amiga.motherboardRam[board];
+      if (amiga.zorro?.holds(address)) return amiga.zorro.read8(address);
+      if (address >= SLOW_START && address < SLOW_START + amiga.slow.length) return amiga.slow[address - SLOW_START];
+      return address < CHIP_END ? amiga.chip.read8(address) : 0xff;
+    },
+    write8: (address: number, value: number): void => {
+      const amiga = this.amiga;
+      const board = this.motherboardOffset(address);
+      if (board >= 0) amiga.motherboardRam[board] = value;
+      else if (amiga.zorro?.holds(address)) amiga.zorro.write8(address, value);
+      else if (address >= SLOW_START && address < SLOW_START + amiga.slow.length) amiga.slow[address - SLOW_START] = value;
+      else if (address < CHIP_END) amiga.chip.write8(address, value);
+    },
+  };
+
   /** The main board RAM (A3000 and A4000), as an offset into it, or -1 for an address outside it. */
   private motherboardOffset(address: number): number {
     const ram = this.amiga.motherboardRam;

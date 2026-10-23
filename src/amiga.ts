@@ -6,6 +6,7 @@ import { Denise } from './denise/denise';
 import type { FloppyDisk } from './drive/adf';
 import { FloppyDrive } from './drive/floppy';
 import { A4000Ide } from './ide/a4000-ide';
+import { ScsiDisk } from './scsi/disk';
 import { A3000Scsi } from './scsi/sdmac';
 import { Gayle } from './ide/gayle';
 import type { HardDiskImage } from './ide/image';
@@ -211,7 +212,7 @@ export class Amiga {
     this.denise.aga = aga;
     this.clock = model.clock ? (this.clock ?? new RealTimeClock()) : null;
     if (this.gayle instanceof Gayle) this.gayle.aga = aga;
-    this.scsi = model.scsi ? (this.scsi ?? new A3000Scsi()) : null;
+    this.scsi = model.scsi ? (this.scsi ?? new A3000Scsi(this.bus.dmaMemory)) : null;
   }
 
   setMemory(config: MemoryConfig): void {
@@ -252,13 +253,19 @@ export class Amiga {
   /** Attaches a hard disk on an A600-style IDE port (null takes it away); Kickstart looks for it at power on. */
   attachHardDisk(image: HardDiskImage | null): void {
     const raisePorts = () => this.paula.raise(Int.PORTS);
-    if (!image || this.model.ide === 'none') this.gayle = null;
+    if (this.scsi) this.scsi.drives[0] = image && this.model.ide === 'scsi' ? new ScsiDisk(image) : null;
+    if (!image || this.model.ide === 'scsi') this.gayle = null;
     else if (this.model.ide === 'a4000') this.gayle = new A4000Ide(image, raisePorts);
     else {
       const gayle = new Gayle(image, raisePorts);
       gayle.aga = this.model.chipset === 'aga';
       this.gayle = gayle;
     }
+  }
+
+  /** The hard drive, on whichever port it is (for its size and activity light). */
+  get hardDrive(): { image: HardDiskImage; activity: number } | null {
+    return this.gayle?.drive ?? this.scsi?.disk ?? null;
   }
 
   insertDisk(drive: number, disk: FloppyDisk | null): void {

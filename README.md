@@ -10,8 +10,8 @@ A Commodore Amiga emulator written from scratch in TypeScript: the Amiga 500, an
 - **The blitter:** all 256 logic functions, shifts, masks, descending mode, inclusive and exclusive fill, and line drawing with textures and one dot per line, cycle by cycle as the Hardware Reference Manual's timing table has it (the CPU gets the idle cycles, even with BLTPRI). ECS's larger blits too.
 - **Denise:** lores and hires, up to six bitplanes scrolled per playfield, dual playfield, hold-and-modify (on either playfield mode) and extra half-brite, the invalid plane counts and priorities, eight sprites (attached in pairs for 15 colours), collisions and interlace. The horizontal display window is the hardware's flip-flop. ECS Denise adds super-hires and the border blank; the A1200's Lisa has 256 colours from a 24-bit palette, HAM8, colour banks for the playfields and sprites, readable colour registers, and sprites 32 and 64 pixels wide.
 - **Paula:** four sound channels with modulation and the A500's two filters, the interrupt controller (whose level reaches the CPU three cycles later, as on the hardware), and the disk controller.
-- **Everything else:** two 8520 CIAs, the keyboard, a mouse and joysticks, and the internal drive DF0 with an optional external DF1; the battery-backed clock of the A2000, A500 Plus, A3000 and A4000, and fast RAM (Zorro II, the A1200's trapdoor, or the A3000's and A4000's 32-bit RAM on the main board, with their Ramsey and Gary chips). The A3000's SCSI controller (its SDMAC and WD33C93) is there with no drive on it, so Kickstart finds none.
-- **A hard drive:** an IDE drive on the A600's and A1200's Gayle port or the A4000's own port (added on for the other models), which Kickstart 3.x's own driver uses.
+- **Everything else:** two 8520 CIAs, the keyboard, a mouse and joysticks, and the internal drive DF0 with an optional external DF1; the battery-backed clock of the A2000, A500 Plus, A3000 and A4000, and fast RAM (Zorro II, the A1200's trapdoor, or the A3000's and A4000's 32-bit RAM on the main board, with their Ramsey and Gary chips). The A3000's SCSI controller (its SDMAC and WD33C93) runs the SCSI bus phases, with the hard drive at ID 0.
+- **A hard drive:** an IDE drive on the A600's and A1200's Gayle port or the A4000's own port (added on for the other models), or a SCSI drive on the A3000, which Kickstart 3.x's own driver uses.
 
 Drop an `.adf`, `.adz` or `.zip` onto the page to put it in a drive. PAL and NTSC machines are both available.
 
@@ -38,7 +38,7 @@ The toolbar has pause, reset (Ctrl-Amiga-Amiga), power cycle and full screen. **
   | Amiga 500 Plus | 1991 | ECS, battery clock | 1MB or 2MB chip | 2.04 |
   | Amiga 600 | 1992 | ECS, IDE | 1MB or 2MB chip | 2.05 (3.1 works too) |
   | Amiga 1200 | 1992 | 68EC020, AGA, IDE | 2MB chip, with 4 or 8MB of trapdoor fast RAM | 3.0 or 3.1 for the A1200 (the A500's 1.3 works too) |
-  | Amiga 3000 | 1990 | 68030, ECS, SCSI (no drive yet), battery clock | 1MB or 2MB chip, with 4 to 16MB of fast RAM on the main board | 3.1 for the A3000 |
+  | Amiga 3000 | 1990 | 68030, ECS, SCSI, battery clock | 1MB or 2MB chip, with 4 to 16MB of fast RAM on the main board | 3.1 for the A3000 |
   | Amiga 4000 | 1992 | 68030, AGA, IDE, battery clock | 2MB chip, with 4 to 16MB of fast RAM on the main board | 3.0 or 3.1 for the A4000 |
 
 - **TV:** PAL (50 Hz) or NTSC (60 Hz).
@@ -50,7 +50,7 @@ Nothing changes until **Restart the Amiga with these settings**, which switches 
 
 ## Hard drive
 
-The drive is an IDE one, as on an A600, A1200 or A4000 (the A3000's SCSI drives aren't emulated yet). Kickstart 3.1 (and the A600's 2.05) find it with their own `scsi.device`; 1.3 and 2.04 have no driver for it. The hard disk is kept in the browser (in 1 MB pieces, saving only the ones that changed), and shows under the screen as DH0 with its activity light. **Export .hdf** downloads it in the format WinUAE and FS-UAE use, and their `.hdf` files can be imported if they were partitioned with HDToolBox (an image of a single partition won't mount).
+The drive is an IDE one, as on an A600, A1200 or A4000, or on the A3000 a SCSI one. Kickstart 3.1 (and the A600's 2.05) find it with their own `scsi.device`; 1.3 and 2.04 have no driver for it. The hard disk is kept in the browser (in 1 MB pieces, saving only the ones that changed), and shows under the screen as DH0 with its activity light. **Export .hdf** downloads it in the format WinUAE and FS-UAE use, and their `.hdf` files can be imported if they were partitioned with HDToolBox (an image of a single partition won't mount).
 
 Installing Workbench 3.1 on it:
 
@@ -91,7 +91,7 @@ The chips are run up to the CPU's time whenever it touches the chip bus, and the
 
 `npm run fetch:hw-tests` downloads a sample of the chipset tests from Dirk Hoffmann's vAmigaTS suite, a few from each group (`-- 30` takes thirty). Each test is a disk with a screenshot from vAmiga, a cycle-exact emulator checked against real Amigas (some screenshots were taken with vAmiga's gamma correction on, which the comparison allows for). 45 of the 47 A500 tests in the default sample match vAmiga's picture, and 208 of the 236 in the larger one. The rest are mostly CPU-timed code a cycle or two off, a bitplane pointer written while it is being fetched, and sprites switched in the middle of a line. `-- aga` adds the tests vAmiga runs on an A1200, 69 of whose 77 match: of the rest, four time the 68EC020 against the blitter, and in four (FMODE 2) vAmiga's picture differs from the photo of a real A1200 that comes with the test, which ours matches. They are listed with the reason in `tests/hardware.test.ts`, which expects them to fail, so one that starts matching shows up. `HW_REPORT=1` prints how much of each picture matches, and with `SHOTS=<dir>` saves a picture of ours, vAmiga's and the difference.
 
-Not covered: the 68EC020's and 68030's own instruction timings (they run on the 68000's, at their clock) and their caches, the 68030's address translation and the 68040, ECS's and AGA's productivity modes (super-hires shows every other pixel), the serial and parallel ports, PCMCIA, and DMS and IPF images. SCSI drives for the A3000, the CD32 (its Akiko chip and CD drive) and an FPU are to come.
+Not covered: the 68EC020's and 68030's own instruction timings (they run on the 68000's, at their clock) and their caches, the 68030's address translation and the 68040, ECS's and AGA's productivity modes (super-hires shows every other pixel), the serial and parallel ports, PCMCIA, and DMS and IPF images. The CD32 (its Akiko chip and CD drive) and an FPU are to come.
 
 ## Development
 

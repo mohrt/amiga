@@ -29,11 +29,11 @@ export interface ModelSpec {
   clock: boolean;
   /** The IDE port on the main board (Gayle), rather than one added on. */
   ideBuiltIn: boolean;
-  /** Where the hard drive goes: an A600-style Gayle port (built in or added on), the A4000's own port, or nowhere yet (the A3000's is SCSI). */
-  ide?: 'a4000' | 'none';
+  /** Where the hard drive goes: an A600-style Gayle port (built in or added on), the A4000's own port, or the A3000's SCSI controller. */
+  ide?: 'a4000' | 'scsi';
   /** Ramsey's revision, for the models with their 32-bit fast RAM (and Gary) on the main board. */
   ramsey?: number;
-  /** The A3000's SCSI controller (with no drive on it yet). */
+  /** The A3000's SCSI controller. */
   scsi?: boolean;
   /** Which Kickstarts suit it, newest first (by their major version), for picking from a collection. */
   kickstarts: number[];
@@ -135,7 +135,7 @@ export const MODELS: ModelSpec[] = [
     memory: [option('1024+4096', 1024, 0, 4096), option('2048+8192', 2048, 0, 8192), option('2048+16384', 2048, 0, 16384), option('1024', 1024, 0)],
     clock: true,
     ideBuiltIn: false,
-    ide: 'none',
+    ide: 'scsi',
     ramsey: 0x0d,
     scsi: true,
     kickstarts: [40],

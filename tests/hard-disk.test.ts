@@ -20,12 +20,14 @@ function bootWith(rom: Uint8Array, image: HardDiskImage, model: ModelId = 'a500'
     read(lba, into, offset);
   };
   const commands: number[] = [];
-  const drive = amiga.gayle!.drive;
-  const writeRegister = drive.writeRegister.bind(drive);
-  drive.writeRegister = (reg, value) => {
-    if (reg === 7) commands.push(value);
-    writeRegister(reg, value);
-  };
+  const drive = amiga.gayle?.drive;
+  if (drive) {
+    const writeRegister = drive.writeRegister.bind(drive);
+    drive.writeRegister = (reg, value) => {
+      if (reg === 7) commands.push(value);
+      writeRegister(reg, value);
+    };
+  }
   return { amiga, sectorsRead, commands };
 }
 
@@ -69,6 +71,27 @@ describe("the A4000's own IDE port with its Kickstart 3.1 (roms/kick31-a4000.rom
     const { amiga, sectorsRead } = bootWith(rom!, image, 'a4000');
     runSeconds(amiga, 12);
     screenshot(amiga, 'A4000 - hard disk boot');
+    expect(sectorsRead.has(rootLba), 'root block read').toBe(true);
+    expect(colourCount(amiga), 'colours on screen').toBeGreaterThan(2);
+  }, 180_000);
+});
+
+describe("the A3000's SCSI hard disk with its Kickstart 3.1 (roms/kick31-a3000.rom)", () => {
+  const rom = localKickstart('kick31-a3000.rom');
+
+  it.skipIf(!rom)('is found by scsi.device, which looks for a Rigid Disk Block', () => {
+    const { amiga, sectorsRead } = bootWith(rom!, HardDiskImage.blank(20), 'a3000');
+    runSeconds(amiga, 10);
+    screenshot(amiga, 'A3000 - blank hard disk');
+    expect(sectorsRead.has(0), 'block 0 read').toBe(true);
+    expect(colourCount(amiga), 'colours on screen').toBeGreaterThan(2);
+  }, 120_000);
+
+  it.skipIf(!rom)('boots from a formatted partition with no floppy in', () => {
+    const { image, rootLba } = formattedHardDisk(20);
+    const { amiga, sectorsRead } = bootWith(rom!, image, 'a3000');
+    runSeconds(amiga, 12);
+    screenshot(amiga, 'A3000 - hard disk boot');
     expect(sectorsRead.has(rootLba), 'root block read').toBe(true);
     expect(colourCount(amiga), 'colours on screen').toBeGreaterThan(2);
   }, 180_000);

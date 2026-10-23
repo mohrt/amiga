@@ -156,7 +156,7 @@ async function main(): Promise<void> {
     const updateStatus = () => {
       const parts = [amiga.model.name, kickstart!.title, amiga.standard.toUpperCase(), memoryLabel(amiga.memory)];
       if (amiga.drives[1].connected) parts.push('DF1');
-      if (amiga.gayle) parts.push(`DH0 ${megabytes(amiga.gayle.drive.image.bytes.length)}`);
+      if (amiga.hardDrive) parts.push(`DH0 ${megabytes(amiga.hardDrive.image.bytes.length)}`);
       status.textContent = parts.join(' · ');
     };
 
@@ -210,7 +210,7 @@ async function main(): Promise<void> {
         if (!amiga.drives[drive].motor) void persistDisk(drive).catch((error: unknown) => console.warn('Could not keep the disk:', error));
       }
       // And for the hard drive to go quiet, so a file being written is complete.
-      if (amiga.gayle && amiga.gayle.drive.activity === 0) void persistHardDisk().catch((error: unknown) => console.warn('Could not keep the hard disk:', error));
+      if (amiga.hardDrive && amiga.hardDrive.activity === 0) void persistHardDisk().catch((error: unknown) => console.warn('Could not keep the hard disk:', error));
     }, DISK_SAVE_INTERVAL_MS);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') void persistAll();
@@ -541,7 +541,7 @@ async function main(): Promise<void> {
           diskPanel.setLed(drive, on);
         }
       }
-      const hardDiskOn = (amiga.gayle?.drive.activity ?? 0) > 0;
+      const hardDiskOn = (amiga.hardDrive?.activity ?? 0) > 0;
       if (hardDiskOn !== hardDiskLed) {
         hardDiskLed = hardDiskOn;
         diskPanel.setHardDiskLed(hardDiskOn);
