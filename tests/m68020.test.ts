@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { M68k, type M68kBus } from '../src/cpu/m68k';
+import { M68k, type CpuModel, type M68kBus } from '../src/cpu/m68k';
 
 const CODE = 0x1000;
 const STACK = 0x8000;
 
-/** A 68EC020 on a megabyte of plain memory, running `words` from $1000 in supervisor mode. */
-function cpuWith(words: number[]): { cpu: M68k; memory: Uint8Array } {
+/** A 68EC020 (or a 68030) on a megabyte of plain memory, running `words` from $1000 in supervisor mode. */
+function cpuWith(words: number[], model: CpuModel = '68ec020'): { cpu: M68k; memory: Uint8Array; writes: number[] } {
   const memory = new Uint8Array(0x100000);
+  /** The addresses the CPU wrote words to, as it put them on the bus. */
+  const writes: number[] = [];
   const bus: M68kBus = {
     read8: (address) => memory[address & 0xfffff],
     read16: (address) => (memory[address & 0xfffff] << 8) | memory[(address + 1) & 0xfffff],
     write8: (address, value) => (memory[address & 0xfffff] = value),
     write16: (address, value) => {
+      writes.push(address);
       memory[address & 0xfffff] = value >> 8;
       memory[(address + 1) & 0xfffff] = value;
     },
@@ -19,12 +22,13 @@ function cpuWith(words: number[]): { cpu: M68k; memory: Uint8Array } {
     resetDevices: () => {},
   };
   words.forEach((word, i) => bus.write16(CODE + i * 2, word));
+  writes.length = 0;
   const cpu = new M68k(bus);
-  cpu.setModel(true);
+  cpu.setModel(model);
   cpu.pc = CODE;
   cpu.a[7] = STACK;
   cpu.intMask = 7;
-  return { cpu, memory };
+  return { cpu, memory, writes };
 }
 
 const run = (cpu: M68k, instructions: number) => {
@@ -207,5 +211,47 @@ describe('68EC020', () => {
     expect(cpu.pc).toBe(CODE + 4);
     run(cpu, 1);
     expect(cpu.pc).toBe(0x5000);
+  });
+});
+
+describe('68030', () => {
+  it('puts all 32 address bits on the bus, where the 68EC020 has 24', () => {
+    // MOVE.L D0,$01000000
+    const program = [0x23c0, 0x0100, 0x0000];
+    const ec020 = cpuWith(program);
+    run(ec020.cpu, 1);
+    expect(ec020.writes).toEqual([0x000000, 0x000002]);
+    const mc030 = cpuWith(program, '68030');
+    run(mc030.cpu, 1);
+    expect(mc030.writes).toEqual([0x1000000, 0x1000002]);
+  });
+
+  it('moves the MMU registers with PMOVE, which the 68EC020 takes as a line-F instruction', () => {
+    // PMOVE (A0),TC; PMOVE TC,(A1)
+    const program = [0xf010, 0x4000, 0xf011, 0x4200];
+    const { cpu, memory } = cpuWith(program, '68030');
+    cpu.a[0] = 0x2000;
+    cpu.a[1] = 0x2010;
+    write32(memory, 0x2000, 0x00c07760);
+    run(cpu, 2);
+    expect(cpu.tc).toBe(0x00c07760);
+    expect(read32(memory, 0x2010)).toBe(0x00c07760);
+    const ec020 = cpuWith(program);
+    write32(ec020.memory, 11 * 4, 0x5000);
+    run(ec020.cpu, 1);
+    expect(ec020.cpu.pc).toBe(0x5000);
+  });
+
+  it('keeps its data cache bits in CACR', () => {
+    // MOVEC D0,CACR; MOVEC CACR,D1
+    const program = [0x4e7b, 0x0002, 0x4e7a, 0x1002];
+    const mc030 = cpuWith(program, '68030');
+    mc030.cpu.d[0] = 0xffffffff;
+    run(mc030.cpu, 2);
+    expect(mc030.cpu.d[1]).toBe(0x3313);
+    const ec020 = cpuWith(program);
+    ec020.cpu.d[0] = 0xffffffff;
+    run(ec020.cpu, 2);
+    expect(ec020.cpu.d[1]).toBe(0x3);
   });
 });

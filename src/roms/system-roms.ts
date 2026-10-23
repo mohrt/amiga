@@ -12,7 +12,7 @@ interface KnownRom {
   name: string;
   /** Set for ROMs made for a later Amiga that isn't emulated yet. */
   unsuitable?: string;
-  /** The model a ROM needs (the A1200's, for its 68EC020 and AGA chips). */
+  /** The model a ROM needs (the A1200's for its 68EC020 and AGA chips, the A4000's for its 68030 and main board). */
   requires?: ModelId;
 }
 
@@ -33,19 +33,22 @@ const KNOWN_ROMS: Record<number, KnownRom> = {
   0xb4113910: { name: 'Kickstart 2.0 (36.28, A3000)', unsuitable: 'it is made for the A3000 (68030)' },
   0x9a15519d: { name: 'Kickstart 2.02 (36.207, A3000)', unsuitable: 'it is made for the A3000 (68030)' },
   0x6c9b07d2: { name: 'Kickstart 3.0 (39.106, A1200)', requires: 'a1200' },
-  0x9e6ac152: { name: 'Kickstart 3.0 (39.106, A4000)', unsuitable: 'it is made for the A4000 (68040 and AGA)' },
+  0x9e6ac152: { name: 'Kickstart 3.0 (39.106, A4000)', requires: 'a4000' },
   0x1483a091: { name: 'Kickstart 3.1 (40.68, A1200)', requires: 'a1200' },
   0xefb239cc: { name: 'Kickstart 3.1 (40.68, A3000)', unsuitable: 'it is made for the A3000 (68030)' },
-  0xd6bae334: { name: 'Kickstart 3.1 (40.68, A4000)', unsuitable: 'it is made for the A4000 (68040 and AGA)' },
-  0x2b4566f1: { name: 'Kickstart 3.1 (40.70, A4000)', unsuitable: 'it is made for the A4000 (68040 and AGA)' },
+  0xd6bae334: { name: 'Kickstart 3.1 (40.68, A4000)', requires: 'a4000' },
+  0x2b4566f1: { name: 'Kickstart 3.1 (40.70, A4000)', requires: 'a4000' },
   0x75932c3a: { name: 'Kickstart 3.1 (40.70, A4000T)', unsuitable: 'it is made for the A4000T (68040 and AGA)' },
   0x1e62d4a5: { name: 'Kickstart 3.1 (40.60, CD32)', unsuitable: 'it is made for the CD32 (68020 and AGA)' },
 };
 
-/** Commodore's Kickstarts for an A500, newest first: 3.1, 2.05, 2.04, 1.3, 1.2; then the A1200's 3.1 and 3.0. */
-const PREFERRED_ROMS = [0xfc24ae0d, 0x43b0df7b, 0x64466c2a, 0x83028fb5, 0xc3bdb240, 0xc4f0f55f, 0xa6ce1636, 0x9ed783d0, 0x1483a091, 0x6c9b07d2];
+/** Commodore's Kickstarts for an A500, newest first: 3.1, 2.05, 2.04, 1.3, 1.2; then the A1200's 3.1 and 3.0, and the A4000's. */
+const PREFERRED_ROMS = [
+  0xfc24ae0d, 0x43b0df7b, 0x64466c2a, 0x83028fb5, 0xc3bdb240, 0xc4f0f55f, 0xa6ce1636, 0x9ed783d0, 0x1483a091, 0x6c9b07d2, 0x2b4566f1, 0xd6bae334,
+  0x9e6ac152,
+];
 
-/** Whether a Kickstart starts on the model: the A1200's ROMs need its 68EC020 and AGA chips. */
+/** Whether a Kickstart starts on the model: the A1200's and A4000's ROMs need that model. */
 export function suitsModel(rom: Kickstart, model: ModelSpec): boolean {
   return !rom.requires || rom.requires === model.id;
 }
@@ -112,7 +115,7 @@ export interface Kickstart extends StoredRom {
   title: string;
   /** Set when the ROM isn't one Commodore shipped for an A500-class machine. */
   warning: string | null;
-  /** The model it needs, for the A1200's ROMs. */
+  /** The model it needs, for the A1200's and A4000's ROMs. */
   requires?: ModelId;
 }
 
@@ -211,7 +214,7 @@ export function identifyKickstart(name: string, file: Uint8Array, key?: Uint8Arr
   if (known?.unsuitable) {
     throw new Error(
       `${known.name} won't start on the Amigas emulated here yet: ${known.unsuitable}. ` +
-        'Use Kickstart 1.3, 2.04 or 3.1 for the A500/A2000, 2.05 for the A600, or 3.0 or 3.1 for the A1200.',
+        'Use Kickstart 1.3, 2.04 or 3.1 for the A500/A2000, 2.05 for the A600, or 3.0 or 3.1 for the A1200 or A4000.',
     );
   }
   if (known) return { name, data, title: known.name, warning: null, ...(known.requires ? { requires: known.requires } : {}) };

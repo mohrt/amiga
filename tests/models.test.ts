@@ -38,6 +38,25 @@ describe('models', () => {
     expect(id).toBe(0xd1);
   });
 
+  it('gives the A4000 Ramsey, Gary, and its fast RAM on the main board just below $8000000', () => {
+    const amiga = new Amiga();
+    amiga.setModel(modelById('a4000'));
+    amiga.setMemory({ chipKb: 2048, slowKb: 0, fastKb: 4096 });
+    amiga.powerOn();
+    expect(amiga.zorro).toBeNull();
+    expect(amiga.bus.read8(0xde0043), 'Ramsey revision').toBe(0x0f);
+    // Gary's cold-boot bit reads set once after power on.
+    expect(amiga.bus.read8(0xde0002) & 0x80).toBe(0x80);
+    expect(amiga.bus.read8(0xde0002) & 0x80).toBe(0);
+    amiga.bus.write16(0x7c00000, 0x1234);
+    amiga.bus.write16(0x7fffffe, 0x5678);
+    expect(amiga.bus.read16(0x7c00000)).toBe(0x1234);
+    expect(amiga.bus.read16(0x7fffffe)).toBe(0x5678);
+    expect(amiga.bus.read16(0x7bffffe), 'below the RAM').toBe(0);
+    // With no drive on the IDE port, its status floats high.
+    expect(amiga.bus.read8(0xdd203e)).toBe(0xff);
+  });
+
   it.skipIf(!rom)('has Kickstart configure the Zorro II fast RAM at $200000', () => {
     const amiga = new Amiga();
     amiga.setModel(modelById('a2000'));

@@ -10,6 +10,9 @@ export interface M68kBus {
   resetDevices(): void;
 }
 
+/** The CPUs this core can be: the A500's 68000, the A1200's 68EC020, or the A3000's and A4000's 68030. */
+export type CpuModel = '68000' | '68ec020' | '68030';
+
 type Size = 1 | 2 | 4;
 type Handler = (this: M68k, op: number) => void;
 
@@ -115,17 +118,31 @@ export class M68k {
   private faultRead = true;
   private faultInstruction = false;
 
-  /** The instruction table: the 68000's, or the 68EC020's. */
+  /** The 68030's MMU registers: translation control, the root pointers, the transparent translations and the status. */
+  tc = 0;
+  readonly crp = new Uint32Array(2);
+  readonly srp = new Uint32Array(2);
+  tt0 = 0;
+  tt1 = 0;
+  mmusr = 0;
+
+  /** The instruction table: the 68000's, the 68EC020's or the 68030's. */
   private table: Handler[] = OPCODES;
-  /** A 68EC020 (as the A1200's): 32-bit operations and addressing, a vector base, and word and long accesses at odd addresses. */
+  /** A 68EC020 or 68030: 32-bit operations and addressing, a vector base, and word and long accesses at odd addresses. */
   is020 = false;
+  /** A 68030: its MMU registers and data cache bits. */
+  is030 = false;
+  /** The address bus: 24 bits on the 68000 and 68EC020, 32 on the 68030. */
+  private addressMask = 0xffffff;
 
   constructor(private readonly bus: M68kBus) {}
 
-  /** Makes this a 68000 or a 68EC020 (for the next reset). */
-  setModel(is020: boolean): void {
-    this.is020 = is020;
-    this.table = is020 ? OPCODES_020 : OPCODES;
+  /** Makes this a 68000, a 68EC020 or a 68030 (for the next reset). */
+  setModel(model: CpuModel): void {
+    this.is020 = model !== '68000';
+    this.is030 = model === '68030';
+    this.addressMask = this.is030 ? 0xffffffff : 0xffffff;
+    this.table = this.is030 ? OPCODES_030 : this.is020 ? OPCODES_020 : OPCODES;
   }
 
   /** The reset sequence: supervisor mode, interrupts masked, the stack pointer and PC from the vector table. */
@@ -136,6 +153,7 @@ export class M68k {
     this.intMask = 7;
     this.stopped = false;
     this.vbr = this.cacr = 0;
+    this.tc = this.tt0 = this.tt1 = this.mmusr = 0;
     this.a[7] = this.read32(0);
     this.pc = this.read32(4);
     this.cycles += 132 - 16;
@@ -233,7 +251,7 @@ export class M68k {
 
   private read8(address: number): number {
     this.cycles += 4;
-    return this.bus.read8(address & 0xffffff);
+    return this.bus.read8((address & this.addressMask) >>> 0);
   }
 
   private read16(address: number): number {
@@ -242,7 +260,7 @@ export class M68k {
       this.fault(address, true, false);
     }
     this.cycles += 4;
-    return this.bus.read16(address & 0xffffff);
+    return this.bus.read16((address & this.addressMask) >>> 0);
   }
 
   private read32(address: number): number {
@@ -252,7 +270,7 @@ export class M68k {
 
   private write8(address: number, value: number): void {
     this.cycles += 4;
-    this.bus.write8(address & 0xffffff, value & 0xff);
+    this.bus.write8((address & this.addressMask) >>> 0, value & 0xff);
   }
 
   private write16(address: number, value: number): void {
@@ -265,7 +283,7 @@ export class M68k {
       this.fault(address, false, false);
     }
     this.cycles += 4;
-    this.bus.write16(address & 0xffffff, value & 0xffff);
+    this.bus.write16((address & this.addressMask) >>> 0, value & 0xffff);
   }
 
   private write32(address: number, value: number): void {
@@ -296,7 +314,7 @@ export class M68k {
     if (pc & 1) this.fault(pc, true, true);
     this.cycles += 4;
     this.pc = (pc + 2) >>> 0;
-    return this.bus.read16(pc & 0xffffff);
+    return this.bus.read16((pc & this.addressMask) >>> 0);
   }
 
   /**
@@ -306,7 +324,7 @@ export class M68k {
   private prefetchRead(address: number): void {
     if (address & 1) return;
     this.cycles += 4;
-    this.bus.read16(address & 0xffffff);
+    this.bus.read16((address & this.addressMask) >>> 0);
   }
 
   private fetch32(): number {
@@ -1564,8 +1582,9 @@ export class M68k {
         this.dfc = value & 7;
         return true;
       case 0x002:
-        // The EC020's cache: enable and freeze are kept; the clear bits act and read back as 0.
-        this.cacr = value & 0x3;
+        // The cache enable and freeze bits are kept (the 68030's data cache, burst and write-allocate
+        // bits too); the clear bits act and read back as 0.
+        this.cacr = value & (this.is030 ? 0x3313 : 0x3);
         return true;
       case 0x800:
         this.otherSp = value >>> 0;
@@ -1585,6 +1604,72 @@ export class M68k {
       default:
         return false;
     }
+  }
+
+  /**
+   * The 68030's MMU instructions (coprocessor 0): PMOVE to and from its registers, PFLUSH, PLOAD
+   * and PTEST. The registers are kept, but addresses aren't translated: Kickstart switches the MMU
+   * off and leaves it off.
+   */
+  mmu030(op: number): void {
+    if (!this.privileged()) return;
+    const extension = this.fetch16();
+    const mode = (op >> 3) & 7;
+    const reg = op & 7;
+    const kind = extension >> 13;
+    if (kind === 1 || kind === 4) {
+      // PFLUSH, PLOAD and PTEST have no cache or tables to act on; PTEST finds nothing wrong.
+      if (kind === 4) this.mmusr = 0;
+      if (mode >= 2) this.address(mode, reg, 4);
+      return;
+    }
+    if (kind !== 0 && kind !== 2 && kind !== 3) {
+      this.exception(VECTOR_LINE_F, this.instructionPc);
+      return;
+    }
+    const register = (extension >> 10) & 7;
+    const toMemory = (extension & 0x0200) !== 0;
+    const root = kind === 2 && (register === 2 || register === 3) ? (register === 2 ? this.srp : this.crp) : null;
+    const size: Size = kind === 3 ? 2 : 4;
+    if (mode < 2 && (root || mode === 1)) {
+      this.exception(VECTOR_LINE_F, this.instructionPc);
+      return;
+    }
+    if (mode === 0) {
+      if (toMemory) this.d[reg] = this.mmuRegister(kind, register);
+      else this.setMmuRegister(kind, register, this.d[reg]);
+      return;
+    }
+    let address = this.address(mode, reg, size);
+    if (root) {
+      // The root pointers are 64 bits: (An)+ and -(An) step by 8.
+      if (mode === 3) this.a[reg] = (this.a[reg] + 4) >>> 0;
+      if (mode === 4) address = this.a[reg] = (this.a[reg] - 4) >>> 0;
+      if (toMemory) {
+        this.write32(address, root[0]);
+        this.write32(address + 4, root[1]);
+      } else {
+        root[0] = this.read32(address);
+        root[1] = this.read32(address + 4);
+      }
+    } else if (toMemory) {
+      this.writeSized(address, size, this.mmuRegister(kind, register));
+    } else {
+      this.setMmuRegister(kind, register, this.readSized(address, size));
+    }
+  }
+
+  private mmuRegister(kind: number, register: number): number {
+    if (kind === 3) return this.mmusr;
+    if (kind === 0) return register === 3 ? this.tt1 : this.tt0;
+    return this.tc;
+  }
+
+  private setMmuRegister(kind: number, register: number, value: number): void {
+    if (kind === 3) this.mmusr = value & 0xffff;
+    else if (kind === 0 && register === 3) this.tt1 = value >>> 0;
+    else if (kind === 0) this.tt0 = value >>> 0;
+    else this.tc = value >>> 0;
   }
 
   /** MOVES: a move in another address space, which the Amiga's memory map doesn't tell apart. */
@@ -2104,3 +2189,11 @@ function decode020(op: number): Handler {
 }
 
 const OPCODES_020: Handler[] = Array.from({ length: 0x10000 }, (_, op) => decode020(op));
+
+/** The 68030 adds the MMU instructions (coprocessor 0) to the 68020's. */
+function decode030(op: number): Handler {
+  if ((op & 0xffc0) === 0xf000) return P.mmu030;
+  return OPCODES_020[op];
+}
+
+const OPCODES_030: Handler[] = Array.from({ length: 0x10000 }, (_, op) => decode030(op));

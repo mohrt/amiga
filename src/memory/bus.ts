@@ -1,6 +1,6 @@
 import type { Amiga } from '../amiga';
 import type { M68kBus } from '../cpu/m68k';
-import { Gayle } from '../ide/gayle';
+import { A4000Ide } from '../ide/a4000-ide';
 import { RealTimeClock } from '../io/clock';
 
 const CHIP_END = 0x200000;
@@ -12,6 +12,16 @@ const ROM_START = 0xf80000;
 const CUSTOM_ECHO_END = 0xd80000;
 /** While the overlay is on, the ROM also appears at the bottom of memory (where the CPU finds its reset vectors). */
 const OVERLAY_END = 0x80000;
+/** The 68030's addresses above the 24-bit space; the A4000's main board RAM ends at $8000000. */
+const HIGH_START = 0x1000000;
+const MOTHERBOARD_RAM_END = 0x8000000;
+/** Gary's registers (bit 7 of $DE0000-$DE0002) and Ramsey's control and version, on the A4000. */
+const GARY_START = 0xde0000;
+const GARY_END = 0xde0003;
+const RAMSEY_CONTROL = 0xde0003;
+const RAMSEY_VERSION = 0xde0043;
+/** Ramsey revision 7, as in later A4000s. */
+const RAMSEY_REVISION = 0x0f;
 
 /**
  * The A500's address decoding, from the CPU's side: chip RAM (with the ROM
@@ -72,8 +82,39 @@ export class AmigaBus implements M68kBus {
     return address >= SLOW_START + this.amiga.slow.length && address >= SLOW_START && address < CUSTOM_ECHO_END;
   }
 
+  /** The A4000's main board RAM, as an offset into it, or -1 for an address outside it. */
+  private motherboardOffset(address: number): number {
+    const ram = this.amiga.motherboardRam;
+    const offset = address - (MOTHERBOARD_RAM_END - ram.length);
+    return offset >= 0 && offset < ram.length ? offset : -1;
+  }
+
+  /** Gary and Ramsey answer on the A4000 only. */
+  private isGary(address: number): boolean {
+    return this.amiga.model.cpu === '68030' && address >= GARY_START && address <= RAMSEY_VERSION && (address <= RAMSEY_CONTROL || address === RAMSEY_VERSION);
+  }
+
+  private garyRead(address: number): number {
+    const amiga = this.amiga;
+    if (address === RAMSEY_VERSION) return RAMSEY_REVISION;
+    if (address === RAMSEY_CONTROL) return amiga.ramseyControl;
+    const value = amiga.gary[address - GARY_START];
+    // Reading the cold-boot bit clears it, so a later reset reads as a warm one.
+    if (address === GARY_END - 1) amiga.gary[2] = 0;
+    return value;
+  }
+
+  private garyWrite(address: number, value: number): void {
+    if (address === RAMSEY_CONTROL) this.amiga.ramseyControl = value & 0xff;
+    else if (address < GARY_END) this.amiga.gary[address - GARY_START] = value & 0x80;
+  }
+
   read16(address: number): number {
     const amiga = this.amiga;
+    if (address >= HIGH_START) {
+      const offset = this.motherboardOffset(address);
+      return offset < 0 ? 0 : (amiga.motherboardRam[offset] << 8) | amiga.motherboardRam[offset + 1];
+    }
     if (address < CHIP_END) {
       if (amiga.overlay && address < OVERLAY_END) return this.romWord(address);
       this.chipBusCycle();
@@ -94,7 +135,8 @@ export class AmigaBus implements M68kBus {
       const a = address & 0x7fffe;
       return (amiga.extendedRom[a] << 8) | amiga.extendedRom[a + 1];
     }
-    if (amiga.gayle && Gayle.handles(address)) return amiga.gayle.read16(address);
+    if (amiga.gayle?.handles(address)) return amiga.gayle.read16(address);
+    if (amiga.model.ide === 'a4000' && A4000Ide.handles(address)) return A4000Ide.readEmpty(address) << 8;
     return this.expansionRead(address, false);
   }
 
@@ -121,6 +163,11 @@ export class AmigaBus implements M68kBus {
 
   read8(address: number): number {
     const amiga = this.amiga;
+    if (address >= HIGH_START) {
+      const offset = this.motherboardOffset(address);
+      return offset < 0 ? 0 : amiga.motherboardRam[offset];
+    }
+    if (this.isGary(address)) return this.garyRead(address);
     if (address < CHIP_END) {
       if (amiga.overlay && address < OVERLAY_END) return amiga.rom[address & 0x7ffff];
       this.chipBusCycle();
@@ -135,7 +182,8 @@ export class AmigaBus implements M68kBus {
       const word = this.ciaRead(address);
       return address & 1 ? word & 0xff : word >> 8;
     }
-    if (amiga.gayle && Gayle.handles(address)) return amiga.gayle.read8(address);
+    if (amiga.gayle?.handles(address)) return amiga.gayle.read8(address);
+    if (amiga.model.ide === 'a4000' && A4000Ide.handles(address)) return A4000Ide.readEmpty(address);
     if (amiga.zorro || amiga.clock) {
       const { zorro, clock } = amiga;
       if (zorro?.holds(address) || zorro?.configures(address) || (clock && RealTimeClock.handles(address))) return this.expansionRead(address, true);
@@ -146,6 +194,14 @@ export class AmigaBus implements M68kBus {
 
   write16(address: number, value: number): void {
     const amiga = this.amiga;
+    if (address >= HIGH_START) {
+      const offset = this.motherboardOffset(address);
+      if (offset >= 0) {
+        amiga.motherboardRam[offset] = value >> 8;
+        amiga.motherboardRam[offset + 1] = value;
+      }
+      return;
+    }
     if (address < CHIP_END) {
       this.chipBusCycle();
       amiga.chip.write16(address, value);
@@ -159,7 +215,7 @@ export class AmigaBus implements M68kBus {
       amiga.slow[a + 1] = value;
     } else if (address >= 0xa00000 && address < 0xc00000) {
       this.ciaWrite(address, value, false);
-    } else if (amiga.gayle && Gayle.handles(address)) {
+    } else if (amiga.gayle?.handles(address)) {
       amiga.gayle.write16(address, value);
     } else {
       this.expansionWrite(address, value, false);
@@ -168,6 +224,15 @@ export class AmigaBus implements M68kBus {
 
   write8(address: number, value: number): void {
     const amiga = this.amiga;
+    if (address >= HIGH_START) {
+      const offset = this.motherboardOffset(address);
+      if (offset >= 0) amiga.motherboardRam[offset] = value;
+      return;
+    }
+    if (this.isGary(address)) {
+      this.garyWrite(address, value);
+      return;
+    }
     if (address < CHIP_END) {
       this.chipBusCycle();
       amiga.chip.write8(address, value);
@@ -180,7 +245,7 @@ export class AmigaBus implements M68kBus {
       amiga.slow[address - SLOW_START] = value;
     } else if (address >= 0xa00000 && address < 0xc00000) {
       this.ciaWrite(address, value, true);
-    } else if (amiga.gayle && Gayle.handles(address)) {
+    } else if (amiga.gayle?.handles(address)) {
       amiga.gayle.write8(address, value);
     } else {
       this.expansionWrite(address, value, true);

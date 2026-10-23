@@ -53,6 +53,10 @@ export class Gayle {
     this.drive.tick();
   }
 
+  handles(address: number): boolean {
+    return Gayle.handles(address);
+  }
+
   /** Whether an address belongs to Gayle. */
   static handles(address: number): boolean {
     return (address >= 0xda0000 && address < 0xdb0000) || (address >= 0xde1000 && address < 0xde2000);

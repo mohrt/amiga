@@ -5,6 +5,7 @@ import { Int, Reg } from './custom/registers';
 import { Denise } from './denise/denise';
 import type { FloppyDisk } from './drive/adf';
 import { FloppyDrive } from './drive/floppy';
+import { A4000Ide } from './ide/a4000-ide';
 import { Gayle } from './ide/gayle';
 import type { HardDiskImage } from './ide/image';
 import { RealTimeClock } from './io/clock';
@@ -23,9 +24,11 @@ export interface MemoryConfig {
   chipKb: 256 | 512 | 1024 | 2048;
   /** The trapdoor expansion's "slow" RAM at $C00000. */
   slowKb: 0 | 512;
-  /** Fast RAM on a Zorro II board (autoconfigured at $200000). */
-  fastKb: 0 | 2048 | 4096 | 8192;
+  /** Fast RAM: on a Zorro II board (autoconfigured at $200000), or on the A4000's main board (up to $8000000). */
+  fastKb: 0 | 2048 | 4096 | 8192 | 16384;
 }
+
+const CPU_RATIO: Record<ModelSpec['cpu'], number> = { '68000': 2, '68ec020': 4, '68030': 7 };
 
 export const DEFAULT_MEMORY: MemoryConfig = { chipKb: 512, slowKb: 512, fastKb: 0 };
 
@@ -51,6 +54,11 @@ export class Amiga {
   slow = new Uint8Array(DEFAULT_MEMORY.slowKb * 1024);
   /** A Zorro II fast RAM board, if there is one. */
   zorro: ZorroRam | null = null;
+  /** The A4000's 32-bit fast RAM on its main board, which Ramsey puts just below $8000000. */
+  motherboardRam = new Uint8Array(0);
+  /** Gary's timeout, timeout-enable and cold-boot bits, and Ramsey's control register (A4000). */
+  readonly gary = new Uint8Array(3);
+  ramseyControl = 0;
   /** The battery-backed clock of the models that have one. */
   clock: RealTimeClock | null = null;
   /** The Kickstart, filling the 512K at $F80000 (a 256K ROM twice). */
@@ -58,7 +66,7 @@ export class Amiga {
   /** A ROM at $E00000 (AROS has one). */
   extendedRom: Uint8Array | null = null;
   /** The A600-style IDE port and its drive, when a hard disk is attached. */
-  gayle: Gayle | null = null;
+  gayle: Gayle | A4000Ide | null = null;
   readonly denise = new Denise();
   readonly drives = [new FloppyDrive(true), new FloppyDrive(false), new FloppyDrive(false), new FloppyDrive(false)];
   readonly ports = new ControlPorts();
@@ -131,9 +139,9 @@ export class Amiga {
     return this.agnus.standard;
   }
 
-  /** CPU cycles per colour clock: the 68000 runs at twice the colour clock, the A1200's 68EC020 at four times. */
+  /** CPU cycles per colour clock: the 68000 runs at twice the colour clock, the A1200's 68EC020 at four times, the A4000's 68030 at seven (25 MHz). */
   get cpuRatio(): number {
-    return this.cpu.is020 ? 4 : 2;
+    return CPU_RATIO[this.model.cpu];
   }
 
   get clockHz(): number {
@@ -194,24 +202,29 @@ export class Amiga {
     const ecs = model.chipset !== 'ocs';
     const aga = model.chipset === 'aga';
     this.agnus.setChipset(ecs, aga);
-    this.cpu.setModel(model.cpu === '68ec020');
+    this.cpu.setModel(model.cpu);
     this.denise.ecs = ecs;
     this.denise.aga = aga;
     this.clock = model.clock ? (this.clock ?? new RealTimeClock()) : null;
-    if (this.gayle) this.gayle.aga = aga;
+    if (this.gayle instanceof Gayle) this.gayle.aga = aga;
   }
 
   setMemory(config: MemoryConfig): void {
     this.chip.resize(config.chipKb * 1024);
     if (this.slow.length !== config.slowKb * 1024) this.slow = new Uint8Array(config.slowKb * 1024);
-    if ((this.zorro?.bytes.length ?? 0) !== config.fastKb * 1024) this.zorro = config.fastKb ? new ZorroRam(config.fastKb) : null;
+    // The A4000's fast RAM is on its main board; the others' is on a Zorro II board.
+    const onBoard = this.model.cpu === '68030';
+    const boardKb = onBoard ? 0 : config.fastKb;
+    if ((this.zorro?.bytes.length ?? 0) !== boardKb * 1024) this.zorro = boardKb ? new ZorroRam(boardKb) : null;
+    const mainKb = onBoard ? config.fastKb : 0;
+    if (this.motherboardRam.length !== mainKb * 1024) this.motherboardRam = new Uint8Array(mainKb * 1024);
   }
 
   get memory(): MemoryConfig {
     return {
       chipKb: (this.chip.size / 1024) as MemoryConfig['chipKb'],
       slowKb: (this.slow.length / 1024) as MemoryConfig['slowKb'],
-      fastKb: ((this.zorro?.bytes.length ?? 0) / 1024) as MemoryConfig['fastKb'],
+      fastKb: ((this.zorro?.bytes.length ?? this.motherboardRam.length) / 1024) as MemoryConfig['fastKb'],
     };
   }
 
@@ -233,8 +246,14 @@ export class Amiga {
 
   /** Attaches a hard disk on an A600-style IDE port (null takes it away); Kickstart looks for it at power on. */
   attachHardDisk(image: HardDiskImage | null): void {
-    this.gayle = image ? new Gayle(image, () => this.paula.raise(Int.PORTS)) : null;
-    if (this.gayle) this.gayle.aga = this.model.chipset === 'aga';
+    const raisePorts = () => this.paula.raise(Int.PORTS);
+    if (!image) this.gayle = null;
+    else if (this.model.ide === 'a4000') this.gayle = new A4000Ide(image, raisePorts);
+    else {
+      const gayle = new Gayle(image, raisePorts);
+      gayle.aga = this.model.chipset === 'aga';
+      this.gayle = gayle;
+    }
   }
 
   insertDisk(drive: number, disk: FloppyDisk | null): void {
@@ -249,6 +268,10 @@ export class Amiga {
     this.chip.bytes.fill(0);
     this.slow.fill(0);
     this.zorro?.bytes.fill(0);
+    this.motherboardRam.fill(0);
+    // Gary tells Kickstart a power-on from a reset.
+    this.gary.fill(0);
+    this.gary[2] = 0x80;
     this.keyboard.reset();
     this.ports.reset();
     for (const drive of this.drives) {

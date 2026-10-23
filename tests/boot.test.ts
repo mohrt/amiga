@@ -35,6 +35,7 @@ const MODEL_BOOTS = [
   ['a600', 'kick31.rom', { chipKb: 2048, slowKb: 0, fastKb: 0 }],
   ['a1200', 'kick31-a1200.rom', { chipKb: 2048, slowKb: 0, fastKb: 4096 }],
   ['a1200', 'kick30-a1200.rom', { chipKb: 2048, slowKb: 0, fastKb: 0 }],
+  ['a4000', 'kick31-a4000.rom', { chipKb: 2048, slowKb: 0, fastKb: 8192 }],
 ] as const;
 
 describe('booting the other models', () => {
@@ -76,48 +77,77 @@ const WORKBENCH_ZIP = join(root, 'disks', 'wb31', 'Workbench v3.1 rev 40.42 (199
 const WORKBENCH_GREY = 0xffaaaaaa;
 /** ExecBase->LibList, GfxBase->ChipRevBits0 and its AGA bits. */
 const EXEC_LIB_LIST = 0x17a;
+/** ExecBase->AttnFlags and ->MemList, and a MemHeader's lower bound. */
+const EXEC_ATTN_FLAGS = 0x128;
+const EXEC_MEM_LIST = 0x142;
+const MH_LOWER = 0x14;
+const AFF_68020 = 0x02;
+const AFF_68030 = 0x04;
+const MOTHERBOARD_RAM_END = 0x8000000;
 const KICKSTART_BASE = 0xf80000;
 const GFX_CHIP_REV_BITS = 0xec;
 const GFXF_AA_ALICE = 0x04;
 const GFXF_AA_LISA = 0x08;
 
-describe('Workbench on the A1200', () => {
-  const rom = localKickstart('kick31-a1200.rom');
-  it.skipIf(!rom || !existsSync(WORKBENCH_ZIP))('starts Workbench 3.1 from its disk, with fast RAM', async () => {
-    const [entry] = readZip(new Uint8Array(readFileSync(WORKBENCH_ZIP)));
-    const amiga = new Amiga();
-    amiga.setModel(modelById('a1200'));
-    amiga.setMemory({ chipKb: 2048, slowKb: 0, fastKb: 4096 });
-    amiga.setKickstart(rom!);
-    amiga.powerOn();
-    amiga.insertDisk(0, FloppyDisk.fromAdf(await entry.read(), 'Workbench3.1'));
-    runSeconds(amiga, 60);
-    screenshot(amiga, 'Amiga 1200 - Workbench 3.1');
-    const { framebuffer, outputLines } = amiga.denise;
-    const pixels = framebuffer.subarray(0, outputLines * 2 * 720);
-    expect(pixels.filter((pixel) => pixel === WORKBENCH_GREY).length / pixels.length, 'share of the screen in Workbench grey').toBeGreaterThan(0.5);
-    expect(amiga.zorro?.base).toBe(0x200000);
-    // graphics.library found Alice and Lisa (ChipRevBits0's AA bits), so it offers the AGA screen modes.
-    const peek16 = (address: number) => {
-      if (address >= KICKSTART_BASE) return (amiga.rom[address - KICKSTART_BASE] << 8) | amiga.rom[address - KICKSTART_BASE + 1];
-      return amiga.zorro?.holds(address) ? amiga.zorro.read16(address) : amiga.chip.read16(address);
-    };
-    const peek32 = (address: number) => ((peek16(address) << 16) | peek16(address + 2)) >>> 0;
-    const name = (address: number) => {
-      let text = '';
-      for (let i = 0; i < 32; i++) {
-        const byte = (peek16((address + i) & ~1) >> ((address + i) & 1 ? 0 : 8)) & 0xff;
-        if (!byte) break;
-        text += String.fromCharCode(byte);
-      }
-      return text;
-    };
-    const execBase = peek32(4);
-    let gfxBase = 0;
-    for (let node = peek32(execBase + EXEC_LIB_LIST); peek32(node) !== 0; node = peek32(node)) {
-      if (name(peek32(node + 10)) === 'graphics.library') gfxBase = node;
+/** Peeks at the Amiga's memory without touching the chips: chip RAM, the ROM and the fast RAM. */
+function peeker(amiga: Amiga): (address: number) => number {
+  return (address) => {
+    if (address >= KICKSTART_BASE && address < KICKSTART_BASE + amiga.rom.length) {
+      return (amiga.rom[address - KICKSTART_BASE] << 8) | amiga.rom[address - KICKSTART_BASE + 1];
     }
-    const chipRevBits = peek16(gfxBase + GFX_CHIP_REV_BITS) >> 8;
-    expect(chipRevBits & (GFXF_AA_ALICE | GFXF_AA_LISA)).toBe(GFXF_AA_ALICE | GFXF_AA_LISA);
-  }, 300_000);
+    const board = address - (MOTHERBOARD_RAM_END - amiga.motherboardRam.length);
+    if (board >= 0 && board < amiga.motherboardRam.length) return (amiga.motherboardRam[board] << 8) | amiga.motherboardRam[board + 1];
+    return amiga.zorro?.holds(address) ? amiga.zorro.read16(address) : amiga.chip.read16(address);
+  };
+}
+
+const WORKBENCH_MACHINES = [
+  ['a1200', 'kick31-a1200.rom', 4096, 0x200000],
+  ['a4000', 'kick31-a4000.rom', 8192, 0x7800000],
+] as const;
+
+describe('Workbench on the AGA Amigas', () => {
+  for (const [id, file, fastKb, fastStart] of WORKBENCH_MACHINES) {
+    const rom = localKickstart(file);
+    const model = modelById(id);
+    it.skipIf(!rom || !existsSync(WORKBENCH_ZIP))(`starts Workbench 3.1 from its disk on the ${model.name}, with fast RAM`, async () => {
+      const [entry] = readZip(new Uint8Array(readFileSync(WORKBENCH_ZIP)));
+      const amiga = new Amiga();
+      amiga.setModel(model);
+      amiga.setMemory({ chipKb: 2048, slowKb: 0, fastKb });
+      amiga.setKickstart(rom!);
+      amiga.powerOn();
+      amiga.insertDisk(0, FloppyDisk.fromAdf(await entry.read(), 'Workbench3.1'));
+      runSeconds(amiga, 60);
+      screenshot(amiga, `${model.name} - Workbench 3.1`);
+      const { framebuffer, outputLines } = amiga.denise;
+      const pixels = framebuffer.subarray(0, outputLines * 2 * 720);
+      expect(pixels.filter((pixel) => pixel === WORKBENCH_GREY).length / pixels.length, 'share of the screen in Workbench grey').toBeGreaterThan(0.5);
+      const peek16 = peeker(amiga);
+      const peek32 = (address: number) => ((peek16(address) << 16) | peek16(address + 2)) >>> 0;
+      const name = (address: number) => {
+        let text = '';
+        for (let i = 0; i < 32; i++) {
+          const byte = (peek16((address + i) & ~1) >> ((address + i) & 1 ? 0 : 8)) & 0xff;
+          if (!byte) break;
+          text += String.fromCharCode(byte);
+        }
+        return text;
+      };
+      const execBase = peek32(4);
+      let gfxBase = 0;
+      for (let node = peek32(execBase + EXEC_LIB_LIST); peek32(node) !== 0; node = peek32(node)) {
+        if (name(peek32(node + 10)) === 'graphics.library') gfxBase = node;
+      }
+      const chipRevBits = peek16(gfxBase + GFX_CHIP_REV_BITS) >> 8;
+      expect(chipRevBits & (GFXF_AA_ALICE | GFXF_AA_LISA)).toBe(GFXF_AA_ALICE | GFXF_AA_LISA);
+      // Exec found the CPU and put the fast RAM in its memory list.
+      const cpuFlags = peek16(execBase + EXEC_ATTN_FLAGS);
+      expect(cpuFlags & AFF_68020, '68020 found').toBe(AFF_68020);
+      if (model.cpu === '68030') expect(cpuFlags & AFF_68030, '68030 found').toBe(AFF_68030);
+      const regions: number[] = [];
+      for (let node = peek32(execBase + EXEC_MEM_LIST); peek32(node) !== 0; node = peek32(node)) regions.push(peek32(node + MH_LOWER) & ~0xfff);
+      expect(regions).toContain(fastStart);
+    }, 300_000);
+  }
 });

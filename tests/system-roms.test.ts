@@ -141,8 +141,15 @@ describe('real Kickstarts from roms/', () => {
     expect(preferredKickstart(roms.slice(1), modelById('a500')).requires).toBe('a1200');
   });
 
-  it.skipIf(!real('kick31-a4000.rom'))('turns away the Kickstarts of models not emulated yet', () => {
-    expect(() => identifyKickstart('kick31-a4000.rom', real('kick31-a4000.rom')!)).toThrow(/A4000/);
+  it.skipIf(!real('kick31-a4000.rom'))('takes the A4000\'s Kickstart for the A4000 only', () => {
+    const rom = identifyKickstart('kick31-a4000.rom', real('kick31-a4000.rom')!);
+    expect(rom.requires).toBe('a4000');
+    expect(suitsModel(rom, modelById('a4000'))).toBe(true);
+    expect(suitsModel(rom, modelById('a1200'))).toBe(false);
+  });
+
+  it.skipIf(!real('kick31-cd32.rom'))('turns away the Kickstarts of models not emulated yet', () => {
+    expect(() => identifyKickstart('kick31-cd32.rom', real('kick31-cd32.rom')!)).toThrow(/CD32/);
   });
 
   it.skipIf(!real('kick13-overdump.rom'))('recognises an overdump of it', () => {

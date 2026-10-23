@@ -1,7 +1,8 @@
 import type { MemoryConfig } from './amiga';
+import type { CpuModel } from './cpu/m68k';
 
 /** The Amigas the emulator can be. */
-export type ModelId = 'a500' | 'a1000' | 'a2000' | 'a500plus' | 'a600' | 'a1200';
+export type ModelId = 'a500' | 'a1000' | 'a2000' | 'a500plus' | 'a600' | 'a1200' | 'a4000';
 
 /** The custom chips: the original ones, the Enhanced Chip Set (Super Agnus and Super Denise), or AGA. */
 export type Chipset = 'ocs' | 'ecs' | 'aga';
@@ -20,7 +21,7 @@ export interface ModelSpec {
   id: ModelId;
   name: string;
   year: number;
-  cpu: '68000' | '68ec020';
+  cpu: CpuModel;
   chipset: Chipset;
   /** Memory setups offered, by the value of Machine setup's menu; the first is the default. */
   memory: MemoryOption[];
@@ -28,6 +29,8 @@ export interface ModelSpec {
   clock: boolean;
   /** The IDE port on the main board (Gayle), rather than one added on. */
   ideBuiltIn: boolean;
+  /** Where the hard drive goes: an A600-style Gayle port (built in or added on), or the A4000's own port. */
+  ide?: 'a4000';
   /** Which Kickstarts suit it, newest first (by their major version), for picking from a collection. */
   kickstarts: number[];
   /** Shown in Machine setup. */
@@ -118,6 +121,19 @@ export const MODELS: ModelSpec[] = [
     ideBuiltIn: true,
     kickstarts: [40, 39],
     romHint: 'Kickstart 3.0 or 3.1 for the A1200 (its own, 39.106 or 40.68); the A500\u2019s 1.3 starts on it too.',
+  },
+  {
+    id: 'a4000',
+    name: 'Amiga 4000',
+    year: 1992,
+    cpu: '68030',
+    chipset: 'aga',
+    memory: [option('2048+4096', 2048, 0, 4096), option('2048+8192', 2048, 0, 8192), option('2048+16384', 2048, 0, 16384), option('2048', 2048, 0)],
+    clock: true,
+    ideBuiltIn: true,
+    ide: 'a4000',
+    kickstarts: [40, 39],
+    romHint: 'Kickstart 3.0 or 3.1 for the A4000 (its own, 39.106 or 40.68).',
   },
 ];
 
