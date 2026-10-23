@@ -105,6 +105,11 @@ export class CdImage implements CdDisc {
     return new CdImage(tracks);
   }
 
+  trackAt(lsn: number): { number: number; start: number } | null {
+    const track = this.tracks.find((candidate) => lsn >= candidate.start && lsn < candidate.start + candidate.length);
+    return track ? { number: track.number, start: track.start } : null;
+  }
+
   readSector(lsn: number, into: Uint8Array): boolean {
     const track = this.tracks.find((candidate) => lsn >= candidate.start && lsn < candidate.start + candidate.length);
     if (!track) return false;

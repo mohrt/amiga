@@ -255,3 +255,57 @@ describe('68030', () => {
     expect(ec020.cpu.d[1]).toBe(0x3);
   });
 });
+
+describe('68882 FPU', () => {
+  const fpuWith = (program: number[]) => {
+    const machine = cpuWith(program, '68030');
+    machine.cpu.setFpu(true);
+    machine.cpu.fpu!.reset();
+    return machine;
+  };
+
+  it('moves integers in, adds them and moves the sum back out', () => {
+    // FMOVE.L #3,FP0; FMOVE.L #2,FP1; FADD.X FP1,FP0; FMOVE.L FP0,D0
+    const { cpu } = fpuWith([0xf23c, 0x4000, 0, 3, 0xf23c, 0x4080, 0, 2, 0xf200, 0x0422, 0xf200, 0x6000]);
+    run(cpu, 4);
+    expect(cpu.d[0]).toBe(5);
+    expect(cpu.fpu!.fp[0]).toBe(5);
+  });
+
+  it('gives pi from the constant ROM, square roots it, and stores a double', () => {
+    // FMOVECR #0,FP0; FSQRT.X FP0; FMOVE.D FP0,(A0)
+    const { cpu, memory } = fpuWith([0xf200, 0x5c00, 0xf200, 0x0004, 0xf210, 0x7400]);
+    cpu.a[0] = 0x2000;
+    run(cpu, 3);
+    const view = new DataView(memory.buffer);
+    expect(view.getFloat64(0x2000)).toBeCloseTo(Math.sqrt(Math.PI), 12);
+  });
+
+  it('keeps registers as extended values through FMOVEM, and branches on a compare', () => {
+    // FMOVE.L #-7,FP0; FMOVE.L #9,FP1; FMOVEM.X FP0/FP1,-(A7); FMOVEM.X (A7)+,FP2/FP3; FCMP.X FP3,FP2; FBOGT.W +4; MOVEQ #1,D1; MOVEQ #2,D2
+    const { cpu } = fpuWith([0xf23c, 0x4000, 0xffff, 0xfff9, 0xf23c, 0x4080, 0, 9, 0xf227, 0xe003, 0xf21f, 0xd030, 0xf200, 0x0d38, 0xf282, 0x0004, 0x7201, 0x7402]);
+    run(cpu, 7);
+    expect([cpu.fpu!.fp[2], cpu.fpu!.fp[3]]).toEqual([-7, 9]);
+    expect(cpu.a[7]).toBe(STACK);
+    // -7 isn't greater than 9, so no branch: D1 is set.
+    expect(cpu.d[1]).toBe(1);
+  });
+
+  it('saves a null frame until it is used, then a 68882 idle frame', () => {
+    // FSAVE -(A7); FMOVE.L #1,FP0; FSAVE -(A7)
+    const { cpu, memory } = fpuWith([0xf327, 0xf23c, 0x4000, 0, 1, 0xf327]);
+    run(cpu, 1);
+    expect(cpu.a[7]).toBe(STACK - 4);
+    expect(read32(memory, STACK - 4)).toBe(0);
+    run(cpu, 2);
+    expect(cpu.a[7]).toBe(STACK - 4 - 0x3c);
+    expect(read32(memory, cpu.a[7]) >>> 16).toBe(0x2038);
+  });
+
+  it('is line F without an FPU', () => {
+    const { cpu, memory } = cpuWith([0xf23c, 0x4000, 0, 3], '68030');
+    write32(memory, 11 * 4, 0x5000);
+    run(cpu, 1);
+    expect(cpu.pc).toBe(0x5000);
+  });
+});

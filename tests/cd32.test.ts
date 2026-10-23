@@ -120,6 +120,10 @@ describe('Akiko', () => {
     lines(1000);
     expect(receive(2), 'play started').toEqual([0x04, 0x0b]);
     receive(1);
+    // Subcode Q: track 2, index 1, 00:00:00 into it, 00:04:50 on the disc.
+    send([0x06]);
+    const q = receive(16);
+    expect(q.slice(2, 13)).toEqual([0, 0x01, 0x02, 0x01, 0x00, 0x00, 0x00, 0, 0x00, 0x04, 0x50]);
     const out = new Float32Array(2);
     akiko.mix(out, 44100);
     expect(out[0]).toBeCloseTo(0x1000 * (0.5 / 32768));

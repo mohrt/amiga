@@ -223,6 +223,7 @@ export class Amiga {
     const aga = model.chipset === 'aga';
     this.agnus.setChipset(ecs, aga);
     this.cpu.setModel(model.cpu);
+    this.cpu.setFpu(!!model.fpu);
     this.denise.ecs = ecs;
     this.denise.aga = aga;
     this.clock = model.clock ? (this.clock ?? new RealTimeClock()) : null;

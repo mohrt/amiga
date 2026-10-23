@@ -35,6 +35,8 @@ export interface ModelSpec {
   ramsey?: number;
   /** The A3000's SCSI controller. */
   scsi?: boolean;
+  /** A 68882 FPU beside the 68030. */
+  fpu?: boolean;
   /** The CD32: Akiko and its CD drive, an extended ROM at $E00000, and no floppy drive or keyboard. */
   cd32?: boolean;
   /** Which Kickstarts suit it, newest first (by their major version), for picking from a collection. */
@@ -140,6 +142,7 @@ export const MODELS: ModelSpec[] = [
     ide: 'scsi',
     ramsey: 0x0d,
     scsi: true,
+    fpu: true,
     kickstarts: [40],
     romHint: 'Kickstart 3.1 for the A3000 (its own, 40.68).',
   },
@@ -154,6 +157,7 @@ export const MODELS: ModelSpec[] = [
     ideBuiltIn: true,
     ide: 'a4000',
     ramsey: 0x0f,
+    fpu: true,
     kickstarts: [40, 39],
     romHint: 'Kickstart 3.0 or 3.1 for the A4000 (its own, 39.106 or 40.68).',
   },

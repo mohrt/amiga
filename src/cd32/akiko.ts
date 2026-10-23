@@ -52,8 +52,15 @@ export interface CdDisc {
   readonly toc: Uint8Array[];
   readonly sectorCount: number;
   readSector(lsn: number, into: Uint8Array): boolean;
+  /** The track a sector is in: its number and first sector. */
+  trackAt(lsn: number): { number: number; start: number } | null;
 }
 
+/** Minutes, seconds and frames in BCD of a sector number (the lead-in included). */
+const toMsf = (lsn: number) => {
+  const frames = lsn + 150;
+  return [bcd(Math.floor(frames / 4500)), bcd(Math.floor(frames / 75) % 60), bcd(frames % 75)];
+};
 const bcd = (value: number) => ((Math.floor(value / 10) % 10) << 4) | value % 10;
 const fromBcd = (value: number) => (value >> 4) * 10 + (value & 15);
 /** A sector number from minutes, seconds and frames in BCD (the first 150 are the lead-in). */
@@ -458,7 +465,8 @@ export class Akiko implements AudioSource {
           length = 2;
         }
         break;
-      case 6: // subcode Q: none to give
+      case 6: // subcode Q: where the play has got to
+        this.subcodeQ();
         length = 15;
         break;
       case 7: {
@@ -547,6 +555,15 @@ export class Akiko implements AudioSource {
         return;
       }
     }
+  }
+
+  /** The Q subchannel of the sector being played: the track, the time in it and on the disc (BCD). */
+  private subcodeQ(): void {
+    const track = this.playing && this.disc ? this.disc.trackAt(this.playSector) : null;
+    if (!track) return;
+    const relative = toMsf(this.playSector - track.start - 150);
+    const absolute = toMsf(this.playSector);
+    this.result.set([0, 0x01, bcd(track.number), 0x01, ...relative, 0, ...absolute], 2);
   }
 
   private mediaStatus(): number {

@@ -84,6 +84,8 @@ const EXEC_MEM_LIST = 0x142;
 const MH_LOWER = 0x14;
 const AFF_68020 = 0x02;
 const AFF_68030 = 0x04;
+const AFF_68881 = 0x10;
+const AFF_68882 = 0x20;
 const MOTHERBOARD_RAM_END = 0x8000000;
 const KICKSTART_BASE = 0xf80000;
 const GFX_CHIP_REV_BITS = 0xec;
@@ -149,6 +151,7 @@ describe('Workbench 3.1 on the Kickstart 3.1 Amigas', () => {
       const cpuFlags = peek16(execBase + EXEC_ATTN_FLAGS);
       expect(cpuFlags & AFF_68020, '68020 found').toBe(AFF_68020);
       if (model.cpu === '68030') expect(cpuFlags & AFF_68030, '68030 found').toBe(AFF_68030);
+      if (model.fpu) expect(cpuFlags & (AFF_68881 | AFF_68882), '68882 found').toBe(AFF_68881 | AFF_68882);
       const regions: number[] = [];
       for (let node = peek32(execBase + EXEC_MEM_LIST); peek32(node) !== 0; node = peek32(node)) regions.push(peek32(node + MH_LOWER) & ~0xfff);
       expect(regions).toContain(fastStart);

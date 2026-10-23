@@ -10,6 +10,8 @@ export interface M68kBus {
   resetDevices(): void;
 }
 
+import { Fpu } from './fpu';
+
 /** The CPUs this core can be: the A500's 68000, the A1200's 68EC020, or the A3000's and A4000's 68030. */
 export type CpuModel = '68000' | '68ec020' | '68030';
 
@@ -135,7 +137,46 @@ export class M68k {
   /** The address bus: 24 bits on the 68000 and 68EC020, 32 on the 68030. */
   private addressMask = 0xffffff;
 
+  /** The 68881/68882 FPU on the 68030 models that have one (coprocessor 1). */
+  fpu: Fpu | null = null;
+
   constructor(private readonly bus: M68kBus) {}
+
+  /** Adds or takes away the FPU (coprocessor 1, on a 68030). */
+  setFpu(present: boolean): void {
+    if (!present) {
+      this.fpu = null;
+      return;
+    }
+    const cpu = this;
+    this.fpu ??= new Fpu({
+      d: this.d,
+      a: this.a,
+      get pc() {
+        return cpu.pc;
+      },
+      set pc(value: number) {
+        cpu.pc = value >>> 0;
+      },
+      get instructionAddress() {
+        return cpu.instructionPc;
+      },
+      get supervisor() {
+        return cpu.supervisor;
+      },
+      fetch16: () => this.fetch16(),
+      fetch32: () => this.fetch32(),
+      address: (mode, reg) => this.address(mode, reg, 4),
+      read8: (address) => this.read8(address),
+      read16: (address) => this.read16(address),
+      read32: (address) => this.read32(address),
+      write8: (address, value) => this.write8(address, value),
+      write16: (address, value) => this.write16(address, value),
+      write32: (address, value) => this.write32(address, value),
+      trap: (vector) => this.exception(vector, this.instructionPc),
+      addCycles: (cycles) => (this.cycles += cycles),
+    });
+  }
 
   /** Makes this a 68000, a 68EC020 or a 68030 (for the next reset). */
   setModel(model: CpuModel): void {
@@ -154,6 +195,7 @@ export class M68k {
     this.stopped = false;
     this.vbr = this.cacr = 0;
     this.tc = this.tt0 = this.tt1 = this.mmusr = 0;
+    this.fpu?.reset();
     this.a[7] = this.read32(0);
     this.pc = this.read32(4);
     this.cycles += 132 - 16;
@@ -1672,6 +1714,12 @@ export class M68k {
     else this.tc = value >>> 0;
   }
 
+  /** Coprocessor 1, the FPU: line F without one. */
+  fpuInstruction(op: number): void {
+    if (this.fpu) this.fpu.execute(op);
+    else this.exception(VECTOR_LINE_F, this.instructionPc);
+  }
+
   /** MOVES: a move in another address space, which the Amiga's memory map doesn't tell apart. */
   moves(op: number): void {
     if (!this.privileged()) return;
@@ -2193,6 +2241,7 @@ const OPCODES_020: Handler[] = Array.from({ length: 0x10000 }, (_, op) => decode
 /** The 68030 adds the MMU instructions (coprocessor 0) to the 68020's. */
 function decode030(op: number): Handler {
   if ((op & 0xffc0) === 0xf000) return P.mmu030;
+  if ((op & 0xfe00) === 0xf200) return P.fpuInstruction;
   return OPCODES_020[op];
 }
 
